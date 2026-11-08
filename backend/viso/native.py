@@ -47,12 +47,16 @@ class Camera:
         def capture():
             device = None
             try:
-                device = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+                # OpenCV 4.13's DirectShow constructor negotiates size before
+                # starting the graph. Setting size/FPS after open restarts the
+                # driver twice; use its negotiated cadence and timestamp every
+                # frame instead of forcing a nominal 30 fps.
+                device = cv2.VideoCapture(index, cv2.CAP_DSHOW, [
+                    cv2.CAP_PROP_FRAME_WIDTH, 960,
+                    cv2.CAP_PROP_FRAME_HEIGHT, 720,
+                ])
                 if not device.isOpened():
                     raise RuntimeError("Camera unavailable. Close other camera apps and check Windows camera permissions.")
-                device.set(cv2.CAP_PROP_FRAME_WIDTH, 960)
-                device.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-                device.set(cv2.CAP_PROP_FPS, 30)
                 last_preview = last_sample = 0
                 while not self.stopped.is_set():
                     ok, image = device.read()
