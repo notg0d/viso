@@ -21,11 +21,10 @@ Requirements: x64 Windows 10/11, .NET Framework 4.8, the Python dependencies/mod
 
 ```powershell
 .\scripts\setup.ps1
-.\scripts\build-signin.ps1 -Test
-.\scripts\test-signin-runtime.ps1
+.\scripts\build-signin.ps1
 ```
 
-The runtime test uses a temporary copy and synthetic profile. It exercises isolated imports, model checksums, real blank-frame inference, the C# worker launcher, profile rejection, and process cleanup. It does not register Windows components or open a camera.
+Automated build/runtime checks and fixtures are maintained on the [test branch](https://github.com/notg0d/viso/tree/test).
 
 Then, from **64-bit administrator PowerShell** in this project:
 
@@ -81,4 +80,4 @@ Retained records work only on the same Windows installation. A changed profile f
 - The bounded UTF-8 pipe protocol accepts no client image frames or claimed biometric success. The private worker receives profile/camera data, never the account password. Python runs with `-I -B` and a restricted executable search path; a kill-on-close Job Object contains it.
 - Passwords are not logged or exported. Byte buffers and native password strings are cleared after use; .NET's immutable strings mean guaranteed immediate erasure of every managed-memory copy is not claimed.
 
-This remains an experimental RGB-camera implementation. Blink checks have functional coverage but do not establish replay/generated-video resistance or Windows Hello certification. See [the remaining integrated tests](testing.md#windows-sign-in-validation).
+This remains an experimental RGB-camera implementation. Blink checks have functional coverage but do not establish replay/generated-video resistance or Windows Hello certification. See [the remaining integrated tests](https://github.com/notg0d/viso/blob/test/docs/testing.md#windows-sign-in-validation).

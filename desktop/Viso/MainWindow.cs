@@ -524,6 +524,7 @@ namespace Viso
 
         private async Task SmokeTest()
         {
+#if VISO_TESTS
             try
             {
                 if (!Ready) throw new InvalidOperationException("Real recognition models did not initialize.");
@@ -580,6 +581,10 @@ namespace Viso
                 window.Close();
             }
             catch (Exception error) { SmokeFail(error); }
+#else
+            await Task.FromResult(0);
+            SmokeFail(new InvalidOperationException("Build the test branch with -SmokeTest to run native checks."));
+#endif
         }
         private void Snapshot(string path)
         {

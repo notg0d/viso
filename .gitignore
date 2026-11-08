@@ -17,3 +17,18 @@ playwright-report/
 .env
 desktop/bin/
 signin/bin/
+
+# Validation sources and the legacy browser bench are maintained on `test`.
+backend/tests/
+signin/Tests/
+tests/
+desktop/Viso/RenderingChecks.cs
+docs/testing.md
+scripts/download_test_fixtures.py
+scripts/test*.ps1
+src/
+/index.html
+/package.json
+/package-lock.json
+/tsconfig.json
+/vite.config.ts

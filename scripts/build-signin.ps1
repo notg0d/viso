@@ -1,6 +1,7 @@
 param([switch]$Test)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+if ($Test -and -not (Test-Path "$root\signin\Tests\ServiceTests.cs")) { throw 'Validation sources are maintained on the test branch.' }
 $out = Join-Path $root 'signin\bin'
 New-Item $out -ItemType Directory -Force | Out-Null
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
