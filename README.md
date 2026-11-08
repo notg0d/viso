@@ -17,6 +17,7 @@ This build runs real face detection and recognition against a **simulated lock s
 - Automatic capture only when the requested enrollment pose is held steady with both eyes open.
 - Buffered camera sampling for short blinks, lightweight face detection, and a fast eye-tracking path while waiting for a blink.
 - Neutral-calibrated enrollment targets, smaller turns, and averaged samples from each stable hold.
+- Multi-angle identity matching and bounded motion recovery to reduce restarts during small head movements.
 - Adjustable cosine-similarity threshold and measured inference latency.
 - One enrolled identity, encrypted with current-user Windows DPAPI by default.
 - Ephemeral mode for a completely memory-only enrollment session.
@@ -57,6 +58,8 @@ The model download is about 43 MB. Dependencies/models need the internet during 
 5. Click **Lock again** to repeat. Every new attempt needs a new blink. **Stop test** or **Escape** cancels a running scan.
 
 Use small head movements, even lighting, and a camera near eye level. Enrollment expires after 90 seconds; unlock attempts expire after 20 seconds. Blink normally after the prompt, then reopen both eyes. A sampled brief closure is sufficient; holding the eyes closed for over 0.8 seconds resets the challenge. Camera frames are sampled independently of network replies to reduce missed blinks.
+
+Small movements can briefly show **Following your movement…** while Viso refreshes a borderline match. That frame cannot unlock; a fresh passing match and open eyes are required. New enrollments retain each angle for multi-view matching. Re-enroll profiles created before v0.4 to enable this; existing profiles still support the improved tracking and recovery.
 
 The camera stops when you leave the test-bench page, switch input modes, or hide the browser tab. Restart it with **Enable camera**.
 

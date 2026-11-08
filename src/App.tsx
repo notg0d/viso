@@ -347,7 +347,7 @@ function App() {
           <button disabled={!!busy} className={`nav-item ${page === 'activity' ? 'active' : ''}`} onClick={() => navigate('activity')}><Activity size={18} />Session activity{logs.length > 0 && <span className="nav-count">{logs.length}</span>}</button>
         </nav>
         <div className="sidebar-note"><span className="tiny-tag">MILESTONE 01</span><h3>Meet your camera.</h3><p>Real face recognition.<br />A simulated unlock.</p><div className="milestone-track"><span /><span /><span /></div><p className="muted-small">Next up: Windows sign-in</p></div>
-        <div className="sidebar-bottom"><div className="device-icon"><Monitor size={18} /></div><div><strong>Windows sandbox</strong><span>Local development · v0.3.0</span></div></div>
+        <div className="sidebar-bottom"><div className="device-icon"><Monitor size={18} /></div><div><strong>Windows sandbox</strong><span>Local development · v{status?.version || '0.4.0'}</span></div></div>
       </aside>
 
       <main>
@@ -397,7 +397,7 @@ function App() {
             <div className="metrics-grid">
               <Metric icon={<Fingerprint size={18} />} label="SIMILARITY" value={score === null || score === undefined ? '—' : score.toFixed(3)} detail={observation?.identity_checked === false ? 'Recent identity match · live eye tracking' : score === null || score === undefined ? 'Run a test to compare' : score >= threshold ? 'Above your threshold' : 'Below your threshold'} good={score !== null && score !== undefined && score >= threshold} />
               <Metric icon={<Activity size={18} />} label="INFERENCE TIME" value={observation ? `${Math.round(observation.latency_ms)}` : '—'} unit={observation ? 'ms' : ''} detail={observation?.identity_checked === false ? 'Local CPU · fast eye tracking' : 'Local CPU · face + eye verification'} />
-              <Metric icon={<Cpu size={18} />} label="RECOGNITION ENGINE" value="SFace" detail="YuNet detection · ONNX models" />
+              <Metric icon={<Cpu size={18} />} label="RECOGNITION ENGINE" value="SFace" detail={profile?.matching === 'multi-view' ? 'Multi-angle matching · ONNX models' : 'YuNet detection · ONNX models'} />
               <Metric icon={<FolderLock size={18} />} label="PROFILE STORAGE" value={status?.storage || '—'} detail={status?.storage === 'Windows DPAPI' ? 'Encrypted for this Windows user' : 'Enrollment lasts for this process'} />
             </div>
             <section className="card activity-preview"><div className="card-heading"><div><Activity size={17} /><h2>Recent activity</h2></div><button className="text-button" disabled={!!busy} onClick={() => navigate('activity')}>View session<ArrowRight size={14} /></button></div><EventList entries={logs.slice(0, 3)} /></section>

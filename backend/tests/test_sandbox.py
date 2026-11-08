@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 import cv2
 import numpy as np
 
-from backend.viso.recognition import DEFAULT_THRESHOLD, MODEL_ID, FaceEngine, InputError, decode_image, similarity
+from backend.viso.recognition import DEFAULT_THRESHOLD, MODEL_ID, FaceEngine, InputError, decode_image, normalized, profile_similarity, similarity
 from backend.viso.server import ROOT, SandboxServer
 from backend.viso.service import ApiError, SandboxService
 from backend.viso.storage import ProfileStore
@@ -175,6 +175,29 @@ class RecognitionIntegrationTests(unittest.TestCase):
         first, second = self.observations["obama.jpg"], self.observations["biden.jpg"]
         self.assertIsNotNone(second.embedding, second.message)
         self.assertLess(similarity(first.embedding, second.embedding), DEFAULT_THRESHOLD)
+
+    def test_moving_portrait_views_match_while_other_identity_stays_below_threshold(self):
+        first, second = self.observations["obama.jpg"], self.observations["obama2.jpg"]
+        enrolled = {"embedding": normalized(first.embedding + second.embedding).tolist(),
+                    "templates": [first.embedding.tolist(), second.embedding.tolist()]}
+        for name in ("obama2.jpg", "biden.jpg"):
+            image = decode_image(self.images[name])
+            height, width = image.shape[:2]
+            for angle, shift, scale in ((-6, -16, .95), (-3, -8, 1.0), (3, 8, 1.0), (6, 16, 1.05)):
+                with self.subTest(name=name, angle=angle):
+                    transform = cv2.getRotationMatrix2D((width / 2, height / 2), angle, scale)
+                    transform[:, 2] += (shift, -shift / 2)
+                    frame = cv2.warpAffine(image, transform, (width, height), borderMode=cv2.BORDER_REFLECT_101)
+                    observed = self.engine.observe(frame)
+                    self.assertIsNotNone(observed.embedding, observed.message)
+                    score = profile_similarity(observed.embedding, enrolled)
+                    if name == "obama2.jpg":
+                        self.assertEqual(observed.attention.eyes, "open")
+                        self.assertGreater(score, DEFAULT_THRESHOLD)
+                    else:
+                        # Reject the distractor by identity even if its rotated
+                        # eye measurements are uncertain.
+                        self.assertLess(score, DEFAULT_THRESHOLD)
 
     def test_blank_and_multiple_faces_are_rejected(self):
         blank = self.engine.observe(np.full((480, 640, 3), 120, dtype=np.uint8))

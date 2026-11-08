@@ -39,6 +39,15 @@ def eye_state(left: float, right: float, left_ear: float, right_ear: float) -> s
     return "uncertain"
 
 
+def open_measurement_jitter(attention: Attention) -> bool:
+    """Near-cutoff uncertainty may pause tracking, but never counts as open."""
+    values = (attention.left_blink, attention.right_blink, attention.left_ear, attention.right_ear)
+    if attention.eyes != "uncertain" or any(value is None for value in values) or not np.isfinite(values).all():
+        return False
+    left, right, left_ear, right_ear = values
+    return 0 <= min(left, right) and .30 < max(left, right) <= .34 and min(left_ear, right_ear) >= .18
+
+
 class EyeCalibration:
     """Attempt-local baseline: a quick, bilateral geometry drop can be a blink.
 

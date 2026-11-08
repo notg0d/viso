@@ -15,7 +15,7 @@ Python sandbox service (one serialized inference/state owner)
   ├─ YuNet ONNX: 320-pixel detection, map face/landmarks to original resolution
   ├─ Reject zero/multiple faces and unusable crops
   ├─ SFace ONNX: alignment → 128 floats → L2 normalization
-  ├─ Cosine similarity against the enrolled centroid
+  ├─ Cosine similarity against the centroid and individual enrollment views
   ├─ MediaPipe Face Landmarker: eye blendshapes + eye geometry + head rotation
   ├─ Server-owned five-pose enrollment, stable hold before capture
   ├─ Attempt: identity → blink → reopen → open-eye confirmation → unlocked
@@ -29,15 +29,23 @@ This is a fresh Viso implementation inspired by Glance's experience. Glance's Sw
 ## Recognition behavior
 
 - Enrollment: 5 guided camera poses or 1–5 image samples. Every sample must contain exactly one usable face with both eyes open.
-- Every pair of enrollment samples must have cosine similarity of at least 0.50. The final template is their normalized mean.
+- Every pair of enrollment samples must have cosine similarity of at least 0.50. The profile retains their normalized mean and up to five individual view embeddings. Matching uses the greater of centroid similarity and the second-highest view similarity: the multi-view path requires two enrolled views to independently pass the selected threshold. A single unusually high view score cannot override a failed centroid.
 - Default match threshold: 0.55, adjustable between 0.35 and 0.90 in the test bench.
 - Camera attempts need 3 open-eye identity matches over at least 150 ms, followed by a fresh blink after the prompt. One sampled bilateral closure suffices, including a brief blink immediately after the prompt. Both eyes must reopen within 0.8 seconds, then remain open for a second confirmation at least 120 ms later.
-- Identity is measured on every initial, closed/uncertain-eye, reopening, and confirmation frame. While waiting with both eyes open, SFace results can be reused for less than 200 ms only when the face-box overlap is at least 0.80 IoU. Face detection, quality gates, and eye measurements still run on every sample. The API marks these fast frames with `identity_checked: false`; the UI labels their similarity as a recent match. Insufficient face-box overlap, uncertain eyes, or an old match force full recognition.
-- Wrong/unusable faces, missing eye tracking, or gaps over 1 second discard challenge progress. A blink prompt expires after 6 seconds and needs new open-eye identity evidence.
+- Identity is measured on every initial, closed/uncertain-eye, reopening, recovery, and confirmation frame. While waiting with both eyes open, SFace results can be reused for less than 200 ms when the face-box overlap is at least 0.80 IoU with the previous tracked box and at least 0.65 with the last fully matched box. This follows small consecutive movements without moving the identity anchor or extending its deadline. Face detection, quality gates, and eye measurements still run on every sample. The API marks these fast frames with `identity_checked: false`; the UI labels their similarity as a recent match.
+- Clear mismatches, unusable faces, missing eye tracking, or gaps over 1 second discard challenge progress. A narrow borderline-score recovery rule is described below. A blink prompt expires after 6 seconds and needs new open-eye identity evidence.
 - Attempts expire after 20 seconds. A new attempt cancels the old one. Deleting a profile revokes attempts.
 - Image tests expose identity scores but always stay locked; setting a permissive threshold does not bypass the blink challenge.
 
 These thresholds are initial test settings, not a validated authentication operating point. Integration-test portraits demonstrate behavior, not a population-wide false-accept/false-reject rate. A blink challenge rejects an unchanged still photo in functional tests, but does not establish video-replay or generated-video resistance. Camera frames arrive through the sandbox HTTP API, which cannot attest a physical camera.
+
+### Small-motion recovery
+
+A fully measured score up to 0.06 below the selected threshold (and at least 0.35) may **pause** a camera attempt if both eyes are measured open, the face overlaps the last matched box by at least 0.65 IoU, and that match was at most 200 ms ago. The API reports `recovering: true`. Such frames add no identity, calibration, or blink evidence and do not refresh the previous match. Recovery requires a fresh passing match within that same deadline and spatial bound. Sustained weak frames, large jumps, missing faces, and closed/uncertain/unknown eyes on a weak frame reset immediately or when the fixed deadline expires.
+
+A narrow eye-measurement jitter case may also pause initial matching, blink prompting, or final confirmation under the same deadline and face-box bound: identity must fully pass, both EAR values must be at least 0.18, and the largest blink coefficient must be just above 0.30 and no higher than 0.34. This remains an **uncertain** measurement, never open-eye or blink evidence. Weak identity and uncertain eyes cannot be combined for recovery. A low EAR, stronger closure, or unknown tracking does not qualify.
+
+A recovery frame during final confirmation clears the confirmation timer while retaining the already measured blink. A recovered match must begin a new strict open-eye confirmation interval of at least 120 ms. Closing either eye or losing eye tracking still resets the challenge. The last frame of a batch must pass the full match threshold and open-eye checks; cached or borderline scores cannot authorize an unlock. Image-source tests never use motion recovery.
 
 ### Eye state and pose
 
@@ -62,13 +70,13 @@ The backend chooses center → subject's left → subject's right → up → dow
 
 The target diagram shows a median-of-three measured pose relative to neutral. Validation uses the actual individual poses, not smoothed display values. Feedback distinguishes chin movement, left/right correction, recentering, and unwanted sideways tilt. Wrong poses/faces or closed eyes reset the current hold. A 90-second timeout or cancellation discards unfinished samples. Only the explicit finish endpoint writes the profile once all five poses are complete.
 
-The SFace model ID and embedding format are unchanged, so old persistent profiles can still be matched. New guided profiles record pose labels/angles in encrypted metadata.
+The SFace model ID and 128-dimensional embedding format are unchanged, so old persistent profiles still use their original centroid score. Re-enrollment is required to retain individual views, which previous versions discarded. New guided profiles also record pose labels/angles in encrypted metadata. The public profile exposes `matching: "multi-view"` or `"centroid"`.
 
 ## Local data and transport
 
 The service binds only to loopback. Host/origin validation, no cross-origin response headers, a per-process mutation token, bounded requests, and a content security policy keep the development API scoped to the local UI. It is not a privileged authentication API or a hostile-local-process boundary.
 
-Frames and embeddings are not included in API logs. Loaded browser images remain in page memory until cleared or the page closes. The service stores only profile metadata and the centroid. Session-event export includes timestamps and decision messages, never face vectors or images.
+Frames and embeddings are not included in API logs. Loaded browser images remain in page memory until cleared or the page closes. The service stores profile metadata, the centroid, and up to five enrollment-view embeddings. All vectors are excluded from public API responses and encrypted together under DPAPI in persistent mode. Session-event export includes timestamps and decision messages, never face vectors or images.
 
 Persistent sandbox templates use `CryptProtectData` with current-user scope. DPAPI protects data at rest; other processes running as that Windows user are not excluded. On non-Windows systems, or with `--ephemeral`, enrollment is memory-only. A corrupted or incompatible profile is retained until explicitly reset.
 

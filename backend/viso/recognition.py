@@ -37,6 +37,16 @@ def similarity(first: np.ndarray, second: np.ndarray) -> float:
     return float(np.clip(np.dot(normalized(first), normalized(second)), -1, 1))
 
 
+def profile_similarity(embedding: np.ndarray, profile: dict) -> float:
+    """Use the centroid or agreement from two enrolled views, never one outlier."""
+    score = similarity(embedding, np.asarray(profile["embedding"]))
+    templates = profile.get("templates", [])
+    if len(templates) >= 2:
+        scores = sorted(similarity(embedding, np.asarray(template)) for template in templates)
+        score = max(score, scores[-2])
+    return score
+
+
 def decode_image(value: str) -> np.ndarray:
     if not isinstance(value, str) or len(value) > 3_000_000:
         raise InputError("Choose a JPEG or PNG image smaller than 2 MB after resizing.")

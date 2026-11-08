@@ -58,6 +58,11 @@ class ProfileStore:
                 if embedding.shape != (128,):
                     raise ValueError("Invalid stored embedding.")
                 profile["embedding"] = normalized(embedding).tolist()
+                if "templates" in profile:
+                    templates = np.asarray(profile["templates"], dtype=np.float32)
+                    if templates.shape != (profile["samples"], 128) or not 1 <= len(templates) <= 5:
+                        raise ValueError("Invalid stored enrollment views.")
+                    profile["templates"] = [normalized(template).tolist() for template in templates]
                 self.profile = profile
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.error = f"Stored profile could not be opened. Reset the profile to enroll again. ({type(error).__name__})"
@@ -65,7 +70,9 @@ class ProfileStore:
     def public(self) -> dict | None:
         if self.profile is None:
             return None
-        return {key: value for key, value in self.profile.items() if key != "embedding"}
+        public = {key: value for key, value in self.profile.items() if key not in ("embedding", "templates")}
+        public["matching"] = "multi-view" if len(self.profile.get("templates", [])) >= 2 else "centroid"
+        return public
 
     def save(self, profile: dict) -> None:
         if self.profile is not None or self.error:

@@ -8,6 +8,7 @@ export interface Profile {
   model_id: string
   created_at: string
   guided?: boolean
+  matching: 'centroid' | 'multi-view'
 }
 
 export interface Status {
@@ -54,6 +55,7 @@ export interface Attempt {
   threshold: number
   phase: 'identity' | 'blink' | 'reopen' | 'confirm' | 'complete'
   challenge: number
+  recovering: boolean
   message: string
 }
 

@@ -6,7 +6,7 @@ from time import monotonic
 
 import numpy as np
 
-from .recognition import DEFAULT_THRESHOLD, MODEL_ID, FaceEngine, InputError, Observation, decode_image, normalized, similarity
+from .recognition import DEFAULT_THRESHOLD, MODEL_ID, FaceEngine, InputError, Observation, decode_image, normalized, profile_similarity, similarity
 from .sessions import Attempt
 from .enrollment import Enrollment
 from .storage import ProfileStore
@@ -30,7 +30,7 @@ class SandboxService:
 
     def status(self) -> dict:
         return {
-            "version": "0.3.0",
+            "version": "0.4.0",
             "mode": "sandbox",
             "token": self.token,
             "engine": {"ready": self.engine is not None, "id": MODEL_ID, "message": self.engine_error},
@@ -45,7 +45,7 @@ class SandboxService:
     def score(self, observation) -> float | None:
         if observation.embedding is None or self.store.profile is None:
             return None
-        return similarity(observation.embedding, np.asarray(self.store.profile["embedding"]))
+        return profile_similarity(observation.embedding, self.store.profile)
 
     def observe(self, data: dict, skip_recognition=None):
         if self.engine is None:
@@ -56,6 +56,7 @@ class SandboxService:
         self.store.save({
             "id": secrets.token_hex(12), "name": name.strip(), "model_id": MODEL_ID,
             "embedding": normalized(np.mean(embeddings, axis=0)).tolist(),
+            "templates": [normalized(embedding).tolist() for embedding in embeddings],
             "samples": len(embeddings), "source": source,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "guided": poses is not None, "poses": poses or [],
@@ -103,12 +104,12 @@ class SandboxService:
             observation = self.observe(frame, skip_recognition=lambda attention, box: attempt.can_track_open_eyes(attention, box, captured))
             if observation.identity_checked:
                 score = self.score(observation)
-                attempt.last_identity_at, attempt.last_identity_box, attempt.last_identity_score = captured, observation.box, score
             else:
                 score = attempt.last_identity_score
             attempt.last_capture_ms = frame["offset_ms"]
             result = attempt.observe(score, now=captured,
-                                     attention=observation.attention, latest=index == len(frames) - 1)
+                                     attention=observation.attention, latest=index == len(frames) - 1,
+                                     box=observation.box, identity_checked=observation.identity_checked)
             # Send the prompt before processing any more images. Already-buffered
             # images cannot answer a challenge the user has not seen yet.
             if phase == "identity" and attempt.phase == "blink":
@@ -208,7 +209,7 @@ class SandboxService:
                     raise ApiError("The enrolled profile changed. Start a new test.", 409)
                 observation = self.observe(data)
                 score = self.score(observation)
-                return {"observation": observation.public(score), "attempt": attempt.observe(score, attention=observation.attention)}
+                return {"observation": observation.public(score), "attempt": attempt.observe(score, attention=observation.attention, box=observation.box)}
             if method == "POST" and len(parts) == 4 and parts[3] == "frames":
                 if not self.store.profile or self.store.profile["id"] != attempt.profile_id:
                     raise ApiError("The enrolled profile changed. Start a new test.", 409)

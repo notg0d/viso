@@ -48,7 +48,7 @@ interface UnlockProps {
 export function UnlockCard({ state, attempt, source, name, ready, working, inspecting, onTest, onStop, onInspect }: UnlockProps) {
   const scanning = state === 'scanning'
   const progress = !attempt ? 0 : attempt.phase === 'complete' ? 3 : ['confirm', 'reopen'].includes(attempt.phase) ? 2 : attempt.phase === 'blink' ? 1 : 0
-  const title = state === 'unlocked' ? `Hello, ${name || 'you'}.` : scanning ? { identity: 'Looking for you…', blink: 'Give us a blink.', reopen: 'Open your eyes.', confirm: 'Almost there…', complete: 'Verified.' }[attempt?.phase || 'identity'] : state === 'blocked' ? 'Photo stays locked.' : state === 'rejected' ? 'Not a match.' : state === 'expired' ? 'Let’s try again.' : 'A glance away.'
+  const title = state === 'unlocked' ? `Hello, ${name || 'you'}.` : scanning ? attempt?.recovering ? 'Following your movement…' : { identity: 'Looking for you…', blink: 'Give us a blink.', reopen: 'Open your eyes.', confirm: 'Almost there…', complete: 'Verified.' }[attempt?.phase || 'identity'] : state === 'blocked' ? 'Photo stays locked.' : state === 'rejected' ? 'Not a match.' : state === 'expired' ? 'Let’s try again.' : 'A glance away.'
   return <section className="card unlock-card" aria-labelledby="unlock-title">
     <div className="card-heading"><div><span className="section-number">02</span><h2 id="unlock-title">You open the door.</h2></div><Monitor size={17} /></div>
     <div className={`lock-simulation ${state}`}>

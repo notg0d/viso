@@ -26,6 +26,8 @@ Coverage includes:
 - Capture timestamp ordering/freshness, bounded buffers, duplicate-video-frame suppression, and sampling cancellation.
 - Fast eye tracking refreshes identity within 200 ms and always performs full recognition on blink/reopening/confirmation frames.
 - Neutral-hold calibration, relative target feedback, and mandatory recentering between directional samples.
+- Multi-view consensus, rejection of single-view outliers, legacy-profile compatibility, encrypted view storage, and vector-free status responses.
+- Brief borderline-match/near-open measurement recovery, fixed recovery deadlines, motion-following cache bounds, and fresh final confirmation after movement.
 - New scans invalidate old scans; profile deletion revokes active scans.
 - DPAPI persistence, encrypted bytes, corrupted-profile handling, and deletion.
 - Loopback API token, origin/host validation, malformed/oversized requests, and static-path traversal.
@@ -49,6 +51,10 @@ Real-model tests are marked skipped if the optional image fixtures have not been
 | Cancel enrollment / Escape / hide tab mid-enrollment | Incomplete samples discarded; no profile saved |
 | Inspect a frame | Face box and timing appear; simulated state is unchanged |
 | Match enrolled face | Prompt for a blink; unlock only after both eyes reopen and remain open |
+| Shift/turn slightly while scanning | Small tracked score dips briefly pause; a fresh passing match resumes within 200 ms |
+| Move slightly after blinking | A brief score dip restarts open-eye confirmation, rather than immediately requiring another blink |
+| Move out of frame / switch people / keep producing weak matches | Challenge resets; recovery cannot extend itself or authorize unlock |
+| Re-enroll with v0.4 | Recognition metric shows multi-angle matching; old profiles keep centroid matching until re-enrolled |
 | Blink normally immediately after the prompt | Brief bilateral closure is detected without a long eye hold |
 | Keep both eyes closed for over 0.8 s | Blink challenge resets |
 | Start with eyes closed, wink, or keep eyes open without blinking | No unlock |
@@ -70,13 +76,17 @@ Real-model tests are marked skipped if the optional image fixtures have not been
 
 ## Development verification
 
-Version 0.3 passed **46 backend tests, 4 camera-sampler tests, and the TypeScript/production build** with the pinned MediaPipe 0.10.32 package. Real-model fixtures verify same-person similarity, different-person rejection, open-eye measurements, mirrored pose, and repeated-photo blocking. Injected observations test the complete blink and five-pose state machines deterministically, including a 50 ms sampled eye closure delivered in a batch; they do not establish real-camera accuracy.
+Version 0.4 passed **62 backend tests, 4 camera-sampler tests, and the TypeScript/production build** with the pinned MediaPipe 0.10.32 package. Real-model fixtures verify same-person similarity, different-person rejection, open-eye measurements, mirrored pose, and repeated-photo blocking. Injected observations test the complete blink and five-pose state machines deterministically, including a 50 ms sampled eye closure delivered in a batch; they do not establish real-camera accuracy.
 
-A same-machine comparison with v0.2 on three 960-pixel portraits measured median full-inference times of approximately **125→48 ms, 76→39 ms, and 69→36 ms**, preserving open-eye classifications on all three. These are local measurements, not a hardware-independent benchmark. The synthetic-camera browser run exercised the buffered HTTP pipeline for 20 seconds without failed requests; it delivered about 15 sampled frames/s through the desktop browser transport, and fast eye-only frames took about 27 ms. The fixed portrait still expired without unlocking.
+A same-machine v0.3 comparison with v0.2 on three 960-pixel portraits measured median full-inference times of approximately **125→48 ms, 76→39 ms, and 69→36 ms**, preserving open-eye classifications on all three. These are local measurements, not a hardware-independent benchmark. The v0.3 synthetic-camera browser run exercised the buffered HTTP pipeline for 20 seconds without failed requests; it delivered about 15 sampled frames/s through the desktop browser transport, and fast eye-only frames took about 27 ms. The fixed portrait still expired without unlocking.
 
 Browser checks verified photo rejection despite similarity 1.000, a portrait-backed synthetic camera reaching the blink prompt and expiring without unlocking, and automatic neutral-pose capture followed by the left-turn prompt. Canceling guided enrollment removed the overlay, left no saved profile, and made the canceled finish endpoint return 404. This synthetic source exercises capture/UI plumbing; reloading the test page restored native camera APIs and released the test stream.
 
 The initial physical-camera feedback reported sluggish scanning, missed normal blinks, and unreliable enrollment. Version 0.3 addresses those paths with buffered capture, faster detection/eye tracking, relative blink closure, averaged enrollment holds, and smaller calibrated targets. Re-enroll and repeat the manual scenarios on the physical webcam to validate the changes across lighting/glasses. Record missed blinks and closed-eye false positives separately from identity mismatch. This is a functional test bench, not an anti-spoofing benchmark.
+
+Follow-up feedback confirmed faster scanning but reported delays/failures with small head movements. Version 0.4 retains enrollment views, follows small box movements, and briefly pauses on borderline open-eye matches. The real-model motion checks rotate portraits by ±3–6°, translate by 8–16 pixels, and scale by 0.95–1.05: the same identity still passes, and the other identity stays below threshold. Deterministic recovery tests verify that weak final frames cannot unlock and that recovery cannot extend its deadline. Natural head turns and blinks still need validation on the physical webcam after re-enrolling for multi-view matching.
+
+The v0.4 browser check enrolled two reference views and exercised a translated/rotated synthetic portrait for 20 seconds. Matching stayed above the default threshold (approximately 0.895–0.935), fast eye tracking remained active, and the attempt expired without unlocking or failed requests. Separate rotation probes found a blink coefficient changing from 0.270 to 0.304 on an open-eye portrait, motivating the narrow near-open pause. Its regression tests require full identity, bound the pause to 200 ms, reject winks/low EAR and combined weak identity, and require a new strict-open interval before unlocking. The browser fixture was deleted and native camera APIs restored afterward.
 
 ## Test fixture sources
 
