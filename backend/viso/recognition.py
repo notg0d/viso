@@ -47,7 +47,13 @@ def profile_similarity(embedding: np.ndarray, profile: dict) -> float:
     return score
 
 
-def decode_image(value: str) -> np.ndarray:
+def decode_image(value: str | np.ndarray) -> np.ndarray:
+    # ndarrays can only come from the in-process native camera; JSON inputs still
+    # take the bounded JPEG/PNG path below.
+    if isinstance(value, np.ndarray):
+        if value.dtype != np.uint8 or value.ndim != 3 or value.shape[2] != 3 or min(value.shape[:2]) < 80 or max(value.shape[:2]) > 960:
+            raise InputError("Invalid native camera frame.")
+        return value
     if not isinstance(value, str) or len(value) > 3_000_000:
         raise InputError("Choose a JPEG or PNG image smaller than 2 MB after resizing.")
     header, separator, encoded = value.partition(",")

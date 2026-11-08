@@ -77,19 +77,22 @@ namespace Viso.SignIn
         private readonly StreamWriter input;
         private IntPtr job;
         private int disposed;
+        private readonly Task initialized;
         internal int ProcessId { get { return process.Id; } }
+        internal Task Ready { get { return initialized; } }
+        internal bool IsAlive { get { try { return disposed == 0 && !process.HasExited; } catch { return false; } } }
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr CreateJobObject(IntPtr security, string name);
         [DllImport("kernel32.dll")] private static extern bool SetInformationJobObject(IntPtr job, int info, ref Limits limits, uint length);
         [DllImport("kernel32.dll")] private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
         [StructLayout(LayoutKind.Sequential)] private struct Basic { public long ProcessTime, JobTime; public uint Flags; public UIntPtr Min, Max; public uint Active; public UIntPtr Affinity; public uint Priority, Scheduling; }
         [StructLayout(LayoutKind.Sequential)] private struct Io { public ulong Read, Write, Other, ReadBytes, WriteBytes, OtherBytes; }
         [StructLayout(LayoutKind.Sequential)] private struct Limits { public Basic Basic; public Io Io; public UIntPtr Process, Job, PeakProcess, PeakJob; }
-        public Worker(string root)
+        public Worker(string root, bool prewarm = false)
         {
             job = CreateJobObject(IntPtr.Zero, null);
             var limits = new Limits(); limits.Basic.Flags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             if (job == IntPtr.Zero || !SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(typeof(Limits)))) { Dispose(); throw new IOException("Cannot isolate the camera worker."); }
-            process = new Process { StartInfo = new ProcessStartInfo(Path.Combine(root, "runtime", "python.exe"), "-I -B -u \"" + Path.Combine(root, "backend", "viso", "signin.py") + "\"") {
+            process = new Process { StartInfo = new ProcessStartInfo(Path.Combine(root, "runtime", "python.exe"), "-I -B -u \"" + Path.Combine(root, "backend", "viso", "signin.py") + "\"" + (prewarm ? " --prewarm" : "")) {
                 WorkingDirectory = root, UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
                 StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
             }};
@@ -99,6 +102,8 @@ namespace Viso.SignIn
                 if (!AssignProcessToJobObject(job, process.Handle)) throw new IOException("Cannot contain the camera worker.");
                 process.ErrorDataReceived += delegate { }; process.BeginErrorReadLine();
                 input = new StreamWriter(process.StandardInput.BaseStream, new UTF8Encoding(false)) { AutoFlush = true };
+                initialized = prewarm ? Initialize() : Task.FromResult(0);
+                initialized.ContinueWith(delegate(Task failed) { var ignored = failed.Exception; }, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
             } catch { Dispose(); throw; }
         }
         public void Start(Account account, string command)
@@ -106,11 +111,21 @@ namespace Viso.SignIn
             var serializer = new JavaScriptSerializer { MaxJsonLength = Wire.Limit };
             input.WriteLine(serializer.Serialize(new { command = command, profile = serializer.DeserializeObject(account.Profile), camera = account.Camera }));
         }
-        public async Task<Dictionary<string, object>> Next()
+        private async Task<Dictionary<string, object>> ReadEvent()
         {
             var line = await process.StandardOutput.ReadLineAsync().ConfigureAwait(false);
             if (line == null || line.Length > Wire.Limit) throw new IOException("Recognition worker stopped.");
             return new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(line);
+        }
+        private async Task Initialize()
+        {
+            var ready = await ReadEvent().ConfigureAwait(false);
+            if (Convert.ToString(ready["event"]) != "ready") throw new IOException("Recognition models could not initialize.");
+        }
+        public async Task<Dictionary<string, object>> Next()
+        {
+            await initialized.ConfigureAwait(false);
+            return await ReadEvent().ConfigureAwait(false);
         }
         public void Ack() { input.WriteLine("ack"); }
         public void Dispose()
@@ -132,6 +147,7 @@ namespace Viso.SignIn
         private readonly SemaphoreSlim camera = new SemaphoreSlim(1, 1);
         private readonly HashSet<NamedPipeServerStream> connections = new HashSet<NamedPipeServerStream>();
         private readonly HashSet<Worker> workers = new HashSet<Worker>();
+        private Worker standby;
         private volatile bool stopping;
         public SignInService() { ServiceName = "VisoSignIn"; CanShutdown = true; }
         protected override void OnStart(string[] args)
@@ -139,11 +155,12 @@ namespace Viso.SignIn
             if (!WindowsIdentity.GetCurrent().IsSystem || !root.Equals(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Viso"), StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Install Viso sign-in into Program Files and run it through Windows Services.");
             for (int i = 0; i < 8; i++) Task.Run((Func<Task>)Listen);
+            Task.Run((Action)PrepareWorker);
         }
         protected override void OnStop()
         {
             lock (connections) { stopping = true; foreach (var pipe in connections) pipe.Dispose(); }
-            lock (workers) { foreach (var worker in workers) worker.Dispose(); workers.Clear(); }
+            lock (workers) { foreach (var worker in workers) worker.Dispose(); workers.Clear(); standby = null; }
         }
         protected override void OnShutdown() { OnStop(); }
         internal static PipeSecurity PipePermissions()
@@ -223,16 +240,49 @@ namespace Viso.SignIn
         private async Task WithWorker(Account account, string command, Func<Worker, Task> action)
         {
             Worker worker;
-            lock (workers) { if (stopping) throw new OperationCanceledException(); worker = new Worker(root); workers.Add(worker); }
+            lock (workers) {
+                if (stopping) throw new OperationCanceledException();
+                worker = command == "verify" ? standby : null;
+                if (command == "verify") standby = null;
+                if (worker != null && !worker.IsAlive) { workers.Remove(worker); worker.Dispose(); worker = null; }
+                if (worker == null) { worker = new Worker(root, command == "verify"); workers.Add(worker); }
+            }
             try {
-                worker.Start(account, command);
+                // Begin the disconnect watcher before a potentially cold model
+                // load. Writing a profile must also be inside the deadline: a
+                // prewarming child may not yet be draining stdin.
                 var task = action(worker);
-                if (await Task.WhenAny(task, Task.Delay(command == "verify" ? 45000 : 20000)).ConfigureAwait(false) != task) {
-                    ObserveFailure(task);
-                    throw new System.TimeoutException("Recognition timed out.");
+                var start = Task.Run(delegate { worker.Start(account, command); });
+                await CompleteWorker(start, task, command == "verify" ? 45000 : 20000).ConfigureAwait(false);
+            } finally {
+                lock (workers) { if (workers.Remove(worker)) worker.Dispose(); }
+                if (command == "verify" && !stopping) ObserveFailure(Task.Run((Action)PrepareWorker));
+            }
+        }
+        internal static async Task CompleteWorker(Task start, Task action, int milliseconds)
+        {
+            ObserveFailure(start); ObserveFailure(action);
+            var timeout = Task.Delay(milliseconds);
+            var first = await Task.WhenAny(start, action, timeout).ConfigureAwait(false);
+            // Surface disconnect/write failure immediately, even if its sibling
+            // is stuck. WithWorker's finally then closes the Job and its pipes.
+            if (first == action) await action.ConfigureAwait(false);
+            if (first == start) await start.ConfigureAwait(false);
+            var complete = Task.WhenAll(start, action); ObserveFailure(complete);
+            if (await Task.WhenAny(complete, timeout).ConfigureAwait(false) != complete) throw new System.TimeoutException("Recognition timed out.");
+            await complete.ConfigureAwait(false);
+        }
+        private void PrepareWorker()
+        {
+            // One unused, model-only process. Every verification consumes and
+            // destroys it, so profiles, calibration and frames never cross attempts.
+            // Warmup does not acquire the camera or read the account vault.
+            try {
+                lock (workers) {
+                    if (stopping || standby != null) return;
+                    standby = new Worker(root, true); workers.Add(standby);
                 }
-                await task.ConfigureAwait(false);
-            } finally { lock (workers) { if (workers.Remove(worker)) worker.Dispose(); } }
+            } catch { /* A later explicit scan retries worker creation. */ }
         }
         internal static bool Matches(Account account, string sid, string kind, string qualified)
         {

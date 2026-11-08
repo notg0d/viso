@@ -23,6 +23,7 @@ class SandboxService:
         self.engine = engine
         self.store = store
         self.engine_error = engine_error
+        self.engine_loading = False
         self.token = secrets.token_urlsafe(32)
         self.lock = threading.Lock()
         self.attempts: dict[str, Attempt] = {}
@@ -30,10 +31,10 @@ class SandboxService:
 
     def status(self) -> dict:
         return {
-            "version": "0.5.0",
+            "version": "0.7.0",
             "mode": "sandbox",
             "token": self.token,
-            "engine": {"ready": self.engine is not None, "id": MODEL_ID, "message": self.engine_error},
+            "engine": {"ready": self.engine is not None, "loading": self.engine_loading, "id": MODEL_ID, "message": self.engine_error},
             "profile": self.store.public(),
             "storage": self.store.label,
             "storage_error": self.store.error,

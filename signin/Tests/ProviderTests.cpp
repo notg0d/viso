@@ -42,6 +42,53 @@ static void Free(CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION& value)
 {
     SecureZeroMemory(value.rgbSerialization, value.cbSerialization); CoTaskMemFree(value.rgbSerialization); value = {};
 }
+class ScanEvents final : public ICredentialProviderEvents, public ICredentialProviderCredentialEvents
+{
+    std::atomic<ULONG> refs{1};
+    DWORD uiThread = GetCurrentThreadId();
+public:
+    HANDLE completed = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    std::atomic<int> starts{0}, submissions{0};
+    ~ScanEvents() { CloseHandle(completed); }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** value) override {
+        *value = nullptr;
+        if (iid == IID_IUnknown || iid == IID_ICredentialProviderEvents) *value = static_cast<ICredentialProviderEvents*>(this);
+        else if (iid == IID_ICredentialProviderCredentialEvents) *value = static_cast<ICredentialProviderCredentialEvents*>(this);
+        else return E_NOINTERFACE;
+        AddRef(); return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refs; }
+    ULONG STDMETHODCALLTYPE Release() override { auto count = --refs; if (!count) delete this; return count; }
+    HRESULT STDMETHODCALLTYPE CredentialsChanged(UINT_PTR) override { assert(GetCurrentThreadId() == uiThread); ++submissions; return S_OK; }
+    HRESULT STDMETHODCALLTYPE SetFieldString(ICredentialProviderCredential* tile, DWORD field, PCWSTR text) override {
+        assert(tile && field == 2 && GetCurrentThreadId() == uiThread);
+        if (std::wstring(text).find(L"Starting Viso") == 0) {
+            ++starts;
+            // Cancel before any connection to the real sign-in service.
+            return E_ABORT;
+        }
+        SetEvent(completed); return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE SetFieldState(ICredentialProviderCredential*, DWORD, CREDENTIAL_PROVIDER_FIELD_STATE) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE SetFieldInteractiveState(ICredentialProviderCredential*, DWORD, CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE SetFieldCheckbox(ICredentialProviderCredential*, DWORD, BOOL, PCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE SetFieldBitmap(ICredentialProviderCredential*, DWORD, HBITMAP) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE SetFieldComboBoxSelectedItem(ICredentialProviderCredential*, DWORD, DWORD) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE DeleteFieldComboBoxItem(ICredentialProviderCredential*, DWORD, DWORD) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE AppendFieldComboBoxItem(ICredentialProviderCredential*, DWORD, PCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE SetFieldSubmitButton(ICredentialProviderCredential*, DWORD, DWORD) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnCreatingWindow(HWND* value) override { *value = nullptr; return S_OK; }
+};
+static void WaitForScan(HANDLE handle)
+{
+    auto deadline = GetTickCount64() + 5000;
+    while (WaitForSingleObject(handle, 0) != WAIT_OBJECT_0 && GetTickCount64() < deadline) {
+        MsgWaitForMultipleObjects(1, &handle, FALSE, 100, QS_ALLINPUT);
+        MSG message;
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
+    }
+    assert(WaitForSingleObject(handle, 0) == WAIT_OBJECT_0);
+}
 template<typename T> static T Function(HMODULE module, const char* name)
 {
     FARPROC address = GetProcAddress(module, name); assert(address);
@@ -107,14 +154,58 @@ int wmain()
         credential->Release();
     }
     provider->Release(); assert(DllCanUnloadNow() == S_OK);
+    auto events = new ScanEvents();
+    auto automaticTile = new Credential(L"S-1-5-21-1-2-3-1001", localName, true, CPUS_LOGON);
+    automaticTile->SetProviderEvents(events, 42);
+    automaticTile->Advise(events);
+    automatic = TRUE;
+    assert(SUCCEEDED(automaticTile->SetSelected(&automatic)) && !automatic);
+    WaitForScan(events->completed);
+    assert(events->starts == 1 && events->submissions == 0 && !automaticTile->HasCredential());
+    // Repeated selection after failure cannot create an automatic retry loop.
+    automaticTile->SetSelected(&automatic);
+    assert(!automatic && events->starts == 1);
+    automaticTile->SetDeselected(); ResetEvent(events->completed);
+    automaticTile->SetSelected(&automatic); WaitForScan(events->completed);
+    assert(events->starts == 2 && events->submissions == 0);
+    // Deselect before dispatching the posted start: stale UI callbacks disappear.
+    automaticTile->SetDeselected(); automaticTile->SetSelected(&automatic); automaticTile->SetDeselected();
+    MSG canceledMessage;
+    while (PeekMessageW(&canceledMessage, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&canceledMessage);
+    assert(events->starts == 2 && events->submissions == 0 && !automaticTile->HasCredential());
+    automaticTile->Detach(); automaticTile->Release();
+    // Drain pending callbacks while the canceled worker releases its reference.
+    auto deadline = GetTickCount64() + 5000;
+    HANDLE pause = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    while (DllCanUnloadNow() != S_OK && GetTickCount64() < deadline) {
+        DWORD index; CoWaitForMultipleHandles(COWAIT_DISPATCH_CALLS | COWAIT_DISPATCH_WINDOW_MESSAGES, 10, 1, &pause, &index);
+    }
+    CloseHandle(pause); assert(DllCanUnloadNow() == S_OK); events->Release();
     wchar_t executable[32768]; assert(GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable)));
     std::wstring dll = executable; dll = dll.substr(0, dll.find_last_of(L'\\') + 1) + L"VisoCredentialProvider.dll";
     HMODULE module = LoadLibraryExW(dll.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32); assert(module);
     auto factoryEntry = Function<decltype(&DllGetClassObject)>(module, "DllGetClassObject");
     IClassFactory* factory = nullptr; assert(SUCCEEDED(factoryEntry(CLSID_Viso, IID_IClassFactory, reinterpret_cast<void**>(&factory))));
     ICredentialProvider* actual = nullptr; assert(SUCCEEDED(factory->CreateInstance(nullptr, IID_ICredentialProvider, reinterpret_cast<void**>(&actual))));
-    assert(actual->SetUsageScenario(CPUS_CREDUI, 0) == E_NOTIMPL); actual->Release(); factory->Release();
-    assert(Function<decltype(&DllCanUnloadNow)>(module, "DllCanUnloadNow")() == S_OK);
+    assert(actual->SetUsageScenario(CPUS_CREDUI, 0) == E_NOTIMPL);
+    assert(SUCCEEDED(actual->SetUsageScenario(CPUS_LOGON, 0)));
+    auto actualEvents = new ScanEvents(); actual->Advise(actualEvents, 42);
+    ICredentialProviderSetUserArray* actualUsers = nullptr; assert(SUCCEEDED(actual->QueryInterface(IID_PPV_ARGS(&actualUsers))));
+    auto oneUser = new Users(); oneUser->users.push_back(new User(true, localName, L"S-1-5-21-1-2-3-1001"));
+    actualUsers->SetUserArray(oneUser); oneUser->Release(); actualUsers->Release();
+    ICredentialProviderCredential* actualTile = nullptr; assert(SUCCEEDED(actual->GetCredentialAt(0, &actualTile)));
+    actualTile->Advise(actualEvents); actualTile->SetSelected(&automatic); WaitForScan(actualEvents->completed);
+    assert(actualEvents->starts == 1 && actualEvents->submissions == 0);
+    actualTile->SetDeselected(); actualTile->UnAdvise(); actualTile->Release();
+    actual->UnAdvise(); actual->Release(); factory->Release();
+    auto canUnload = Function<decltype(&DllCanUnloadNow)>(module, "DllCanUnloadNow");
+    deadline = GetTickCount64() + 5000;
+    while (canUnload() != S_OK && GetTickCount64() < deadline) {
+        MSG message;
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&message);
+        SwitchToThread();
+    }
+    assert(canUnload() == S_OK); actualEvents->Release();
     FreeLibrary(module); FreeLibrary(sspi);
-    CoUninitialize(); std::cout << "Provider checks passed: actual DLL activation, local/MSA logon+unlock packing, Unicode, account filtering, no default takeover, and no credentials before verification.\n";
+    CoUninitialize(); std::cout << "Provider checks passed: DLL activation, protected local/MSA packing, account filtering, automatic scanning with UI-thread callbacks, bounded retry, cancellation, unload, and no credentials before verification.\n";
 }

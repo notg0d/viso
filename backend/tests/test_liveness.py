@@ -176,7 +176,7 @@ class GuidedEnrollmentTests(unittest.TestCase):
             result = enrollment.observe(observation(yaw=19, pitch=-5), now)
         self.assertEqual(result["guidance"]["yaw"], 16)
         self.assertEqual(result["guidance"]["pitch"], 0)
-        self.assertEqual(result["guidance"]["target_yaw"], 16)
+        self.assertEqual(result["guidance"]["target_yaw"], 14)
 
     def test_each_turn_requires_recentering_and_cannot_skip_to_opposite_side(self):
         enrollment = Enrollment("test", "Name", 100)

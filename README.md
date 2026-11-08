@@ -1,12 +1,25 @@
 # Viso
 
+`main` contains the native application and sign-in source. Automated validation and the earlier browser test bench are retained on the [`test` branch](https://github.com/notg0d/viso/tree/test).
+
 **Look. You're in.** A Windows-first face-unlock project.
 
 ## Native Windows app
 
 Viso is a **native C#/WPF desktop application** for face enrollment, unlock testing, image inspection, profile management, and settings. Its Glance-inspired dark interface uses a segmented enrollment ring, directional light, and eased native animations. The Python/OpenCV recognition worker starts with the app and communicates over private process pipes. No browser, web server, Electron, or WebView is needed.
 
-**Unlock test** is a simulator. An optional native **Windows sign-in prototype** now supports local accounts and personal Microsoft accounts through a Credential Provider and LocalSystem service. See [Windows sign-in setup](docs/windows-signin.md). Actual lock-screen/reboot authentication and service camera access still need VM validation.
+**Unlock test** is a simulator. The optional native **Windows sign-in prototype** supports local accounts and personal Microsoft accounts through a Credential Provider and LocalSystem service. See [Windows sign-in setup](docs/windows-signin.md), including how to update an installed version.
+
+### New in 0.7
+
+- Selecting **Viso Face** starts a scan automatically. After a failed scan, the arrow retries; switching sign-in options cancels it.
+- Linked accounts advertise Viso as an available default. Windows still chooses according to its remembered sign-in provider and policy; sign in with Viso once to establish that preference.
+- The sign-in service keeps one model-loaded worker ready, with its camera closed. Each scan gets fresh verification state and destroys its worker afterward.
+- The desktop shows profile/settings status while models load, and camera discovery runs off the UI thread.
+- Raw camera frames go directly into recognition. Only the desktop preview is JPEG-encoded.
+- Enrollment accepts broader angles, gentle movement, and a shorter pause: three distinct frames across 240 ms. Returning to center takes two frames across 120 ms.
+
+[Measured timings and validation scope](docs/performance.md).
 
 ### Included
 
@@ -63,8 +76,7 @@ The model download is about 43 MB. Dependencies/models need the internet during 
 The sign-in components additionally require **x64 Windows**, **Visual Studio C++ Build Tools**, and the **Windows 10/11 SDK** to build. Installation requires administrator privileges. Build and validate first:
 
 ```powershell
-.\scripts\build-signin.ps1 -Test
-.\scripts\test-signin-runtime.ps1
+.\scripts\build-signin.ps1
 ```
 
 In an administrator PowerShell on the test Windows machine:
@@ -73,7 +85,7 @@ In an administrator PowerShell on the test Windows machine:
 .\scripts\install-signin.ps1
 ```
 
-Run Viso normally, save a five-angle camera enrollment, then use **Settings → Windows face sign-in → Link / update account**. Select **Local account** and your Windows username, or **Microsoft account** and your account email. Enter the **account password**, not a Windows Hello PIN. Passwordless-only accounts need a usable password for this implementation. Lock Windows and choose **Sign-in options → Viso Face**, then scan and blink when prompted.
+Run Viso normally, save a five-angle camera enrollment, then use **Settings → Windows face sign-in → Link / update account**. Select **Local account** and your Windows username, or **Microsoft account** and your account email. Enter the **account password**, not a Windows Hello PIN. Passwordless-only accounts need a usable password for this implementation. Lock Windows and choose **Sign-in options → Viso Face**. Scanning starts on selection; blink when prompted.
 
 [Full setup, password updates, removal, and validation status](docs/windows-signin.md).
 
@@ -81,7 +93,7 @@ Run Viso normally, save a five-angle camera enrollment, then use **Settings → 
 
 1. In **Your face**, enter a profile name. **Start camera** previews your camera; **Begin enrollment** also starts it automatically.
 2. Follow the five prompts: center, your left, your right, chin up, chin down. The preview is mirrored, and the ring tracks your measured head direction.
-3. Hold each requested angle briefly with both eyes open. Viso averages the stable frames and captures automatically. Return to center when prompted. **Cancel** or **Escape** discards the unfinished sequence.
+3. Turn gently in the requested direction, then pause briefly with both eyes open. Broad acceptance regions replace precise alignment; Viso averages the frames and captures automatically. Look roughly toward center when prompted. **Cancel** or **Escape** discards the unfinished sequence.
 4. Open **Unlock test**, then **Test face unlock**. Look at the camera, **blink both eyes when prompted**, then reopen them. The simulator unlocks only after it confirms your eyes are open again.
 5. Start another test to repeat. Every attempt needs a new blink. The camera stops after completion, when changing pages, when minimizing, on Windows session lock, and when closing Viso.
 
@@ -110,18 +122,11 @@ Choosing photos replaces the in-memory input set. Delete enrollment in **Setting
 # Compile the native executable
 .\scripts\build-native.ps1
 
-# Run native visual/IPC smoke checks with temporary, memory-only enrollment
-.\scripts\build-native.ps1 -SmokeTest
 ```
 
-Native UI source lives in `desktop/Viso/`. XAML is embedded into the executable. The smoke check loads the real models, renders native screenshots into `test-results/native/`, verifies control gating and reduced motion, and checks inference, Unicode IPC, photo rejection, and deletion when test portraits are available.
+Native UI source lives in `desktop/Viso/`. XAML is embedded into the executable. Validation commands and fixtures are maintained on `test`.
 
-```powershell
-# Real-model integration tests + backend tests + native build and smoke check
-.\scripts\test.ps1
-```
-
-See [test scenarios](docs/testing.md), [architecture](docs/architecture.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
+See [test scenarios](https://github.com/notg0d/viso/blob/test/docs/testing.md), [architecture](docs/architecture.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Project layout
 
@@ -131,17 +136,14 @@ desktop/bin/               Built Viso.exe (git-ignored)
 backend/viso/native.py     Private desktop worker and DirectShow camera capture
 backend/viso/signin.py     Service-owned one-shot profile/camera worker
 backend/viso/              Recognition, profile storage, simulation, legacy API
-backend/tests/             Validation, storage, HTTP, and real-model tests
 models/manifest.json       Pinned model revisions and SHA-256 hashes
-scripts/                   Setup, launch, model download, and test commands
+scripts/                   Setup, launch, model download, and deployment commands
 signin/Provider/           x64 C++ V2 Credential Provider
 signin/Service/            C# LocalSystem sign-in service and account vault
 signin/Shared/             Named-pipe protocol and Windows account validation
-signin/Tests/              Credential formats, service, and IPC checks
 docs/                      Architecture and test-environment notes
 .viso/profile.dpapi        Local encrypted enrollment (git-ignored)
 .viso/desktop.json         Desktop preferences (git-ignored)
-src/                       Earlier browser test bench (not used by native app)
 ```
 
 ## Troubleshooting

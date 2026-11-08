@@ -23,8 +23,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class Camera:
-    def __init__(self, emit):
+    def __init__(self, emit, preview=True):
         self.emit = emit
+        self.preview = preview
         self.lock = threading.Lock()
         self.frames = deque(maxlen=6)
         self.latest = None
@@ -66,17 +67,22 @@ class Camera:
                     height, width = image.shape[:2]
                     if max(height, width) > 960:
                         image = cv2.resize(image, (round(width * 960 / max(height, width)), round(height * 960 / max(height, width))))
-                    ok, jpeg = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 88])
-                    if not ok:
-                        continue
-                    encoded = base64.b64encode(jpeg).decode("ascii")
+                    # Recognition owns raw, immutable samples. JPEG is only a UI
+                    # transport, never an intermediate inference representation.
+                    image.setflags(write=False)
                     with self.lock:
-                        self.latest = (now, encoded)
+                        self.latest = (now, image)
                         self.frames.append(self.latest)
                     opened.set()
-                    if now - last_preview >= 1 / 15:
+                    if self.preview and now - last_preview >= 1 / 15:
                         last_preview = now
-                        self.emit({"event": "preview", "image": encoded, "generation": generation})
+                        view = image
+                        if max(image.shape[:2]) > 720:
+                            scale = 720 / max(image.shape[:2])
+                            view = cv2.resize(image, (round(image.shape[1] * scale), round(image.shape[0] * scale)))
+                        ok, jpeg = cv2.imencode(".jpg", view, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                        if ok:
+                            self.emit({"event": "preview", "image": base64.b64encode(jpeg).decode("ascii"), "generation": generation})
             except Exception as error:
                 self.error = str(error)
                 self.emit({"event": "camera_error", "message": self.error, "generation": generation})
@@ -111,13 +117,16 @@ class Camera:
             self.frames.clear()
 
     def frame(self):
+        return self.sample()[1]
+
+    def sample(self):
         with self.lock:
             latest = self.latest
         if self.error:
             raise ApiError(self.error)
         if latest is None or monotonic() - latest[0] > .7:
             raise ApiError("No fresh camera frame. Start your camera again.")
-        return "data:image/jpeg;base64," + latest[1]
+        return latest
 
     def take(self, after):
         if self.error:
@@ -171,11 +180,16 @@ class NativeHost:
             self.cancel()
             result = dispatch("POST", "/api/enrollments", data)
             self.enrollment_id = result["id"]
+            self.capture_after = 0
             return {"enrollment": result}
         if command == "enrollment.tick":
             if not self.enrollment_id:
                 raise ApiError("Start enrollment first.")
-            return dispatch("POST", "/api/enrollments/" + self.enrollment_id + "/frame", {"image": self.camera.frame()})
+            captured, image = self.camera.sample()
+            if captured <= self.capture_after:
+                return {"enrollment": self.service.enrollment.public()}
+            self.capture_after = captured
+            return dispatch("POST", "/api/enrollments/" + self.enrollment_id + "/frame", {"image": image})
         if command == "enrollment.finish":
             if not self.enrollment_id:
                 raise ApiError("Start enrollment first.")
@@ -211,7 +225,7 @@ class NativeHost:
                 return {"attempt": attempt.public()}
             challenge = attempt.challenge
             result = dispatch("POST", "/api/attempts/" + self.attempt_id + "/frames", {"frames": [
-                {"offset_ms": (captured - attempt.started_at) * 1000, "image": "data:image/jpeg;base64," + image}
+                {"offset_ms": (captured - attempt.started_at) * 1000, "image": image}
                 for captured, image in samples
             ]})
             self.capture_after = samples[-1][0]
@@ -247,15 +261,26 @@ def main():
         with output_lock:
             print(json.dumps(message, ensure_ascii=True, allow_nan=False), flush=True)
 
-    engine = None
-    engine_error = None
-    try:
-        engine = FaceEngine(ROOT / "models")
-    except Exception as error:
-        engine_error = str(error)
     camera = Camera(emit)
-    host = NativeHost(SandboxService(engine, ProfileStore(args.data_dir, args.ephemeral), engine_error), camera)
+    service = SandboxService(None, ProfileStore(args.data_dir, args.ephemeral), "Loading recognition models…")
+    service.engine_loading = True
+    host = NativeHost(service, camera)
     emit({"event": "ready"})
+
+    def load_models():
+        engine = None
+        error = None
+        try:
+            engine = FaceEngine(ROOT / "models")
+        except Exception as failure:
+            error = str(failure)
+        with service.lock:
+            service.engine, service.engine_error = engine, error
+            service.engine_loading = False
+        emit({"event": "engine_ready"})
+
+    loader = threading.Thread(target=load_models, name="viso-models")
+    loader.start()
     try:
         while True:
             line = sys.stdin.readline(16_000_001)
@@ -282,8 +307,9 @@ def main():
             host.cancel()
             camera.stop()
         finally:
-            if engine is not None:
-                engine.close()
+            loader.join()
+            if service.engine is not None:
+                service.engine.close()
 
 
 if __name__ == "__main__":

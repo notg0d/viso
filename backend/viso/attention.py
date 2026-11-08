@@ -5,7 +5,6 @@ from math import atan2, degrees, hypot
 from pathlib import Path
 
 import cv2
-import mediapipe as mp
 import numpy as np
 
 
@@ -145,6 +144,9 @@ def head_angles(matrix: np.ndarray) -> tuple[float, float, float]:
 
 class AttentionEngine:
     def __init__(self, model_dir: Path):
+        # Profile validation and non-camera commands do not need MediaPipe.
+        import mediapipe as mp
+        self.mp = mp
         self.landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(
             mp.tasks.vision.FaceLandmarkerOptions(
                 base_options=mp.tasks.BaseOptions(model_asset_path=str(model_dir / "face_landmarker.task")),
@@ -161,6 +163,7 @@ class AttentionEngine:
         self.landmarker.close()
 
     def observe(self, image: np.ndarray, face: np.ndarray) -> Attention:
+        mp = self.mp
         result = self.landmarker.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(image, cv2.COLOR_BGR2RGB)))
         if len(result.face_landmarks) != 1 or len(result.face_blendshapes) != 1 or len(result.facial_transformation_matrixes) != 1:
             return Attention()

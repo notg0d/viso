@@ -72,6 +72,8 @@ class TiltGeometryTests(unittest.TestCase):
         engine.landmarker = SimpleNamespace(detect=lambda _: result)
         face = np.array([200, 80, 240, 240, 0, 0, 0, 0, 320, 180])
         image = np.zeros((height, width, 3), dtype=np.uint8)
+        import mediapipe
+        engine.mp = mediapipe
         measured = engine.observe(image, face)
         self.assertEqual(measured.eyes, "open")
         self.assertAlmostEqual(measured.left_ear, .19)

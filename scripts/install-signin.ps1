@@ -13,7 +13,7 @@ if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64' -or $env:PROCESSOR_ARCHITEW6432 -eq 
 if (Get-Service VisoSignIn -ErrorAction SilentlyContinue) { throw 'Uninstall the existing sign-in components and restart Windows before installing this build.' }
 if ((Test-Path $providerKey) -or (Test-Path $classKey)) { throw 'Remove the existing Viso registration using uninstall-signin.ps1 first.' }
 foreach ($file in 'signin\bin\VisoCredentialProvider.dll','signin\bin\VisoSignInService.exe','.venv\Scripts\python.exe','models\manifest.json') {
-    if (-not (Test-Path (Join-Path $root $file))) { throw "Missing $file. Run setup.ps1 and build-signin.ps1 -Test first." }
+    if (-not (Test-Path (Join-Path $root $file))) { throw "Missing $file. Run setup.ps1 and build-signin.ps1 first." }
 }
 Assert-VisoNoReparse $destination
 Assert-VisoNoReparse $data

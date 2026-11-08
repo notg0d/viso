@@ -94,6 +94,14 @@ namespace Viso.SignIn
             }
             Console.WriteLine("Checking sign-in prompt acknowledgment and disconnect cancellation...");
             await TestRelay(false); await TestRelay(true);
+            var never = new TaskCompletionSource<int>();
+            var timed = SignInService.CompleteWorker(never.Task, never.Task, 20);
+            Check(await Task.WhenAny(timed, Task.Delay(2000)) == timed);
+            Check(timed.IsFaulted && timed.Exception.InnerException is TimeoutException);
+            var failedWrite = new TaskCompletionSource<int>(); failedWrite.SetException(new IOException("Canceled writer"));
+            var failed = SignInService.CompleteWorker(failedWrite.Task, never.Task, 10000);
+            Check(await Task.WhenAny(failed, Task.Delay(2000)) == failed);
+            Reject(delegate { failed.GetAwaiter().GetResult(); });
         }
         private static async Task TestRelay(bool disconnect)
         {
@@ -104,9 +112,11 @@ namespace Viso.SignIn
                 if (disconnect) {
                     var blockedInference = new TaskCompletionSource<Dictionary<string, object>>();
                     var relay = SignInService.Relay(server, () => blockedInference.Task, delegate { throw new Exception("Unexpected acknowledgment."); });
+                    var blockedWrite = new TaskCompletionSource<int>();
+                    var completion = SignInService.CompleteWorker(blockedWrite.Task, relay, 10000);
                     client.Dispose();
-                    Check(await Task.WhenAny(relay, Task.Delay(2000)) == relay);
-                    Reject(delegate { relay.GetAwaiter().GetResult(); });
+                    Check(await Task.WhenAny(completion, Task.Delay(2000)) == completion);
+                    Reject(delegate { completion.GetAwaiter().GetResult(); });
                 } else {
                     int step = 0, acknowledgments = 0;
                     var relay = SignInService.Relay(server, delegate {
@@ -132,12 +142,20 @@ namespace Viso.SignIn
                 worker.Start(account, "validate");
                 Check(Convert.ToString((await worker.Next())["event"]) == "validated");
             }
+            using (var worker = new Worker(root, true)) {
+                // Model warmup completes without a profile or a camera request.
+                await worker.Ready;
+                Check(worker.IsAlive);
+                worker.Start(account, "validate");
+                Check(Convert.ToString((await worker.Next())["event"]) == "validated");
+                using (var process = Process.GetProcessById(worker.ProcessId)) Check(process.WaitForExit(3000));
+            }
             account.Profile = "{}";
             using (var worker = new Worker(root)) {
                 worker.Start(account, "validate");
                 Check(Convert.ToString((await worker.Next())["event"]) == "error");
             }
-            var waiting = new Worker(root);
+            var waiting = new Worker(root, true);
             using (var process = Process.GetProcessById(waiting.ProcessId)) {
                 waiting.Dispose(); waiting.Dispose();
                 Check(process.WaitForExit(3000));

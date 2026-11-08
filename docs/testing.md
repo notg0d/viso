@@ -1,5 +1,11 @@
 # Testing Viso
 
+## 0.7 responsiveness update
+
+The production source matches `main`; validation files and the earlier browser bench remain on `test`. The updated local run passed 99 Python checks, provider checks against the actual DLL (including automatic selection and UI-thread callbacks), 47 service checks, 11 deployment checks, 6 packaged-worker checks, and native smoke/render checks. See [measured timings and remaining installed-build validation](performance.md).
+
+New regressions cover raw camera input, no JPEG work for sign-in, distinct enrollment frames, broader pose regions, asynchronous desktop initialization, model-only one-shot prewarm, canceled queued provider callbacks, and disconnect/deadline handling while startup writes are blocked.
+
 ## Initial test environment
 
 Run `scripts/start.ps1 -Ephemeral`. This launches the native WPF app with a memory-only Python recognition worker. The lock screen in the interface is a simulation. Python dependencies are isolated in `.venv`; the native build uses the installed Windows .NET Framework.

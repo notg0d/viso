@@ -176,17 +176,27 @@ class NativePipeTests(unittest.TestCase):
             {"id": 3, "command": "analyze", "data": {"image": "data:image/png;base64," + base64.b64encode(cv2.imencode(".png", np.zeros((100, 100, 3), np.uint8))[1]).decode()}},
             {"id": 4, "command": "cancel"},
         ]
-        worker = subprocess.run([sys.executable, "-m", "backend.viso.native", "--ephemeral"], cwd=root,
-                                input="\n".join(json.dumps(command) for command in commands) + "\n",
-                                capture_output=True, text=True, encoding="utf-8", timeout=30)
-        self.assertEqual(worker.returncode, 0, worker.stderr)
-        messages = [json.loads(line) for line in worker.stdout.splitlines()]
-        self.assertEqual(messages[0], {"event": "ready"})
-        self.assertTrue(messages[1]["result"]["engine"]["ready"])
-        self.assertIn("error", messages[2])
-        self.assertIn("error", messages[3])
-        self.assertEqual(messages[4]["result"]["face_count"], 0)
-        self.assertEqual(messages[5]["result"]["state"], "locked")
+        worker = subprocess.Popen([sys.executable, "-m", "backend.viso.native", "--ephemeral"], cwd=root,
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, encoding="utf-8")
+        try:
+            self.assertEqual(json.loads(worker.stdout.readline()), {"event": "ready"})
+            worker.stdin.write(json.dumps(commands[0]) + "\n"); worker.stdin.flush()
+            early = []
+            while not any(item.get("event") == "engine_ready" for item in early) or not any(item.get("id") == 1 for item in early):
+                early.append(json.loads(worker.stdout.readline()))
+            self.assertIn("profile", next(item["result"] for item in early if item.get("id") == 1))
+            output, errors = worker.communicate("\n".join(json.dumps(command) for command in commands) + "\n", timeout=30)
+            self.assertEqual(worker.returncode, 0, errors)
+            messages = [json.loads(line) for line in output.splitlines()]
+            self.assertTrue(messages[0]["result"]["engine"]["ready"])
+            self.assertIn("error", messages[1])
+            self.assertIn("error", messages[2])
+            self.assertEqual(messages[3]["result"]["face_count"], 0)
+            self.assertEqual(messages[4]["result"]["state"], "locked")
+        finally:
+            if worker.poll() is None:
+                worker.kill(); worker.communicate()
 
 
 if __name__ == "__main__":

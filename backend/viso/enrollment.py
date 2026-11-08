@@ -16,12 +16,14 @@ STEPS = (
     ("down", "Lower your chin slightly", "Follow the light downward. Keep your eyes on the camera."),
 )
 
-TARGETS = {"center": (0, 0, 7, 18), "left": (16, 0, 6, 9), "right": (-16, 0, 6, 9),
-           "up": (0, -12, 9, 5), "down": (0, 12, 9, 5)}
+TARGETS = {"center": (0, 0, 10, 18), "left": (14, 0, 8, 13), "right": (-14, 0, 8, 13),
+           "up": (0, -10, 13, 6), "down": (0, 10, 13, 6)}
+RECENTER = (0, 0, 9, 9)
+MAX_ROLL = 18
 
 
 def pose_matches(step: str, yaw: float, pitch: float, roll: float) -> bool:
-    if not np.isfinite([yaw, pitch, roll]).all() or abs(roll) > 12:
+    if not np.isfinite([yaw, pitch, roll]).all() or abs(roll) > MAX_ROLL:
         return False
     if step not in TARGETS:
         return False
@@ -118,13 +120,13 @@ class Enrollment:
             if self.baseline:
                 yaw, pitch = yaw - self.baseline[0], pitch - self.baseline[1]
             step = STEPS[len(self.embeddings)][0]
-            matches = (abs(yaw) <= 6 and abs(pitch) <= 6 and abs(roll) <= 12) if self.returning else pose_matches(step, yaw, pitch, roll)
+            matches = (np.isfinite([yaw, pitch, roll]).all() and abs(yaw) <= RECENTER[2] and abs(pitch) <= RECENTER[3] and abs(roll) <= MAX_ROLL) if self.returning else pose_matches(step, yaw, pitch, roll)
             if not matches:
                 self.reset_hold()
-                if abs(roll) > 12:
+                if abs(roll) > MAX_ROLL:
                     self.message = "Keep your head upright; turn instead of tilting sideways."
                 elif self.returning:
-                    self.message = "Face the camera again. Center your head inside the ring."
+                    self.message = "Look roughly toward the camera again."
                 else:
                     target_yaw, target_pitch, tolerance_yaw, tolerance_pitch = TARGETS[step]
                     if abs(pitch - target_pitch) > tolerance_pitch:
@@ -132,17 +134,17 @@ class Enrollment:
                     else:
                         self.message = "Turn a little to your left." if yaw < target_yaw else "Turn a little to your right."
             else:
-                if self.held_pose is not None and max(abs(yaw - self.held_pose[0]), abs(pitch - self.held_pose[1]), abs(roll - self.held_pose[2])) > 5:
+                if self.held_pose is not None and max(abs(yaw - self.held_pose[0]), abs(pitch - self.held_pose[1]), abs(roll - self.held_pose[2])) > 9:
                     self.reset_hold()
                 if self.hold_at is None:
                     self.hold_at, self.held_pose = now, (yaw, pitch, roll)
                 self.hold_frames += 1
                 self.hold_samples.append((observation.embedding.copy(), (attention.yaw, attention.pitch, attention.roll)))
                 self.hold_samples = self.hold_samples[-12:]
-                duration = .2 if self.returning else .35
+                duration = .12 if self.returning else .24
                 self.hold_progress = min(1, (now - self.hold_at) / duration)
-                self.message = "Perfect. Hold this position…"
-                if self.hold_frames >= 3 and now - self.hold_at >= duration:
+                self.message = "That's enough. Pause briefly…"
+                if self.hold_frames >= (2 if self.returning else 3) and now - self.hold_at >= duration:
                     if self.returning:
                         self.returning = False
                         self.reset_hold()
@@ -167,7 +169,7 @@ class Enrollment:
     def public(self) -> dict:
         index = len(self.embeddings)
         step = STEPS[min(index, len(STEPS) - 1)]
-        target = (0, 0, 6, 6) if self.returning else TARGETS[step[0]]
+        target = RECENTER if self.returning else TARGETS[step[0]]
         guidance = {"yaw": round(self.measured_pose[0], 1) if self.measured_pose else None,
                     "pitch": round(self.measured_pose[1], 1) if self.measured_pose else None,
                     "target_yaw": target[0], "target_pitch": target[1],
