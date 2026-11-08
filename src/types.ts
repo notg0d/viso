@@ -20,11 +20,13 @@ export interface Status {
   storage_error: string | null
   threshold: number
   liveness: 'blink-and-open-eyes'
+  camera_pipeline: 'buffered-v1'
 }
 
 export interface Observation {
   face_count: number
   usable: boolean
+  identity_checked: boolean
   message: string
   box: [number, number, number, number] | null
   detection_score: number | null
@@ -51,6 +53,7 @@ export interface Attempt {
   source: Source
   threshold: number
   phase: 'identity' | 'blink' | 'reopen' | 'confirm' | 'complete'
+  challenge: number
   message: string
 }
 
@@ -65,6 +68,15 @@ export interface Enrollment {
   message: string
   hold_progress: number
   steps: string[]
+  returning: boolean
+  guidance: {
+    yaw: number | null
+    pitch: number | null
+    target_yaw: number
+    target_pitch: number
+    tolerance_yaw: number
+    tolerance_pitch: number
+  }
 }
 
 export interface EnrollmentFrame {
@@ -75,6 +87,11 @@ export interface EnrollmentFrame {
 export interface FrameResult {
   attempt: Attempt
   observation: Observation
+}
+
+export interface CameraFrame {
+  image: string
+  offset_ms: number
 }
 
 export interface LabImage {

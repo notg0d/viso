@@ -8,6 +8,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
+from typing import Callable
 
 os.environ.setdefault("OPENCV_IO_MAX_IMAGE_PIXELS", "16777216")
 
@@ -66,17 +67,19 @@ class Observation:
     detection_score: float | None = None
     latency_ms: float = 0
     attention: Attention | None = None
+    identity_checked: bool = True
 
     def public(self, score: float | None = None) -> dict:
         return {
             "face_count": self.face_count,
-            "usable": self.embedding is not None,
+            "usable": self.embedding is not None or not self.identity_checked,
             "message": self.message,
             "box": self.box,
             "detection_score": self.detection_score,
             "latency_ms": round(self.latency_ms, 1),
             "similarity": round(score, 4) if score is not None else None,
             "attention": (self.attention or Attention()).public(),
+            "identity_checked": self.identity_checked,
         }
 
 
@@ -102,11 +105,18 @@ class FaceEngine:
     def close(self):
         self.attention.close()
 
-    def observe(self, image: np.ndarray) -> Observation:
+    def observe(self, image: np.ndarray, skip_recognition: Callable[[Attention, list[float]], bool] | None = None) -> Observation:
         start = perf_counter()
         height, width = image.shape[:2]
-        self.detector.setInputSize((width, height))
-        _, faces = self.detector.detect(image)
+        # Detection needs far fewer pixels than eye geometry/recognition. Keep the
+        # original image for both, and map all five YuNet landmarks back to it.
+        scale = min(1.0, 320 / max(width, height))
+        small = cv2.resize(image, (round(width * scale), round(height * scale))) if scale < 1 else image
+        self.detector.setInputSize((small.shape[1], small.shape[0]))
+        _, faces = self.detector.detect(small)
+        if faces is not None:
+            faces[:, :14:2] *= width / small.shape[1]
+            faces[:, 1:14:2] *= height / small.shape[0]
         count = 0 if faces is None else len(faces)
         if count != 1:
             result = Observation(count, "No face detected. Face the camera in good light." if count == 0 else "Keep only one face in the frame.")
@@ -128,8 +138,10 @@ class FaceEngine:
                 elif sharpness < 20:
                     result = Observation(1, "Hold still: the face image is too blurry.", box=box)
                 else:
-                    embedding = normalized(self.recognizer.feature(aligned))
-                    result = Observation(1, "Face ready", embedding, box, float(face[-1]))
-                    result.attention = self.attention.observe(image, face)
+                    attention = self.attention.observe(image, face)
+                    skip = skip_recognition is not None and skip_recognition(attention, box)
+                    embedding = None if skip else normalized(self.recognizer.feature(aligned))
+                    result = Observation(1, "Face ready", embedding, box, float(face[-1]),
+                                         attention=attention, identity_checked=not skip)
         result.latency_ms = (perf_counter() - start) * 1000
         return result

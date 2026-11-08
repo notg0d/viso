@@ -6,6 +6,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Test fixture download failed.' }
     & '.\.venv\Scripts\python.exe' -m unittest discover -s backend/tests -v
     if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
+    npm test
+    if ($LASTEXITCODE -ne 0) { throw 'Camera sampler tests failed.' }
     npm run build
     if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
 } finally {

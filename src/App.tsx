@@ -6,7 +6,7 @@ import {
   ShieldCheck, Sparkles, Square, Trash2, Upload, UserRound, X,
 } from 'lucide-react'
 import { api } from './api'
-import { capture, delay, loadImage } from './media'
+import { CameraSampler, capture, loadImage } from './media'
 import type { Attempt, Enrollment, LabImage, LogEntry, Observation, Source, Status } from './types'
 import { EnrollmentGuide, EyeReadout, UnlockCard } from './Guidance'
 
@@ -134,7 +134,7 @@ function App() {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera access requires localhost and a supported browser. Use Image lab to test without a camera.')
       const next = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { width: { ideal: 960 }, height: { ideal: 720 }, ...(chosenDevice ? { deviceId: { exact: chosenDevice } } : { facingMode: 'user' }) },
+        video: { width: { ideal: 960 }, height: { ideal: 720 }, frameRate: { ideal: 30 }, ...(chosenDevice ? { deviceId: { exact: chosenDevice } } : { facingMode: 'user' }) },
       })
       if (generation !== cameraGeneration.current || !video.current) {
         next.getTracks().forEach((track) => track.stop())
@@ -232,7 +232,6 @@ function App() {
           setObservation(result.observation)
           if (result.enrollment.state === 'expired') throw new Error(result.enrollment.message)
           if (result.enrollment.state === 'ready') break
-          await delay(60)
         }
         if (generation !== enrollmentGeneration.current) return
         savingEnrollment.current = true
@@ -273,15 +272,26 @@ function App() {
     setError(null)
     setObservation(null)
     setTestState('scanning')
+    let sampler: CameraSampler | null = null
     try {
+      const captureClock = performance.now()
       const started = await api.start(source, threshold, controller.signal)
       if (generation !== scanGeneration.current) { void api.cancel(started.id).catch(() => {}); return }
       attemptId.current = started.id
       setAttempt(started)
+      if (source === 'camera') {
+        if (!video.current) throw new Error('Start the camera first.')
+        sampler = new CameraSampler(video.current, captureClock, controller.signal)
+      }
+      let previousChallenge = started.challenge
       log(`Started ${source === 'camera' ? 'live camera' : 'still-image'} test at threshold ${threshold.toFixed(2)}.`)
       while (generation === scanGeneration.current) {
-        const result = await api.frame(started.id, currentFrame(), controller.signal)
+        const result = sampler
+          ? await api.frames(started.id, await sampler.take(), controller.signal)
+          : await api.frame(started.id, currentFrame(), controller.signal)
         if (generation !== scanGeneration.current) return
+        if (result.attempt.challenge !== previousChallenge) sampler?.discard()
+        previousChallenge = result.attempt.challenge
         setAttempt(result.attempt)
         setObservation(result.observation)
         if (result.attempt.state !== 'scanning') {
@@ -296,14 +306,12 @@ function App() {
           attemptId.current = null
           return
         }
-        // Inference requests are serialized; a short interval avoids missing a blink.
-        await delay(30)
       }
     } catch (cause) {
       if (generation !== scanGeneration.current) return
       cancelScan()
       fail(cause)
-    }
+    } finally { sampler?.stop() }
   }
 
   function exportLogs() {
@@ -339,7 +347,7 @@ function App() {
           <button disabled={!!busy} className={`nav-item ${page === 'activity' ? 'active' : ''}`} onClick={() => navigate('activity')}><Activity size={18} />Session activity{logs.length > 0 && <span className="nav-count">{logs.length}</span>}</button>
         </nav>
         <div className="sidebar-note"><span className="tiny-tag">MILESTONE 01</span><h3>Meet your camera.</h3><p>Real face recognition.<br />A simulated unlock.</p><div className="milestone-track"><span /><span /><span /></div><p className="muted-small">Next up: Windows sign-in</p></div>
-        <div className="sidebar-bottom"><div className="device-icon"><Monitor size={18} /></div><div><strong>Windows sandbox</strong><span>Local development · v0.2.0</span></div></div>
+        <div className="sidebar-bottom"><div className="device-icon"><Monitor size={18} /></div><div><strong>Windows sandbox</strong><span>Local development · v0.3.0</span></div></div>
       </aside>
 
       <main>
@@ -376,7 +384,7 @@ function App() {
                   {profile ? <div className="enrolled-summary"><span className="avatar"><UserRound size={22} /></span><div><strong>{profile.name}<span className="small-check"><Check size={11} /></span></strong><span>{profile.samples} samples · {profile.guided ? 'Guided camera enrollment' : profile.source === 'camera' ? 'Camera enrollment' : 'Image lab enrollment'}</span></div><button className="button secondary compact" disabled={working} onClick={() => navigate('identity')}>Manage<ArrowRight size={14} /></button></div> : <>
                     <label htmlFor="profile-name">MAKE IT PERSONAL</label>
                     <div className="enroll-controls"><input id="profile-name" maxLength={40} value={name} disabled={working} onChange={(event) => setName(event.target.value)} placeholder="Your profile name" /><button className="button primary" disabled={!ready || working || !name.trim() || !!status?.storage_error} onClick={() => void enroll()}>{busy === 'enroll' || busy === 'saving' ? <LoaderCircle size={16} className="spin" /> : <Plus size={16} />}{busy === 'saving' ? 'Saving…' : busy === 'enroll' ? 'Enrolling…' : 'Enroll face'}</button></div>
-                    <p>{source === 'camera' ? 'Follow five directions: center, left, right, up, down. Keep both eyes open.' : 'Enroll a reference photo with both eyes open. Use the camera for blink verification.'}</p>
+                    <p>{source === 'camera' ? 'Move the dot into each target: center, left, right, up, down. Use small turns and return to center when prompted.' : 'Enroll a reference photo with both eyes open. Use the camera for blink verification.'}</p>
                   </>}
                 </div>
               </section>
@@ -386,7 +394,12 @@ function App() {
                 <section className="card sensitivity-card"><div className="setting-heading"><div><Settings2 size={16} /><h2>Match threshold</h2></div><output htmlFor="threshold">{threshold.toFixed(2)}</output></div><input id="threshold" aria-label="Match threshold" type="range" min="0.35" max="0.9" step="0.01" value={threshold} disabled={working} onChange={(event) => { setThreshold(Number(event.target.value)); cancelScan() }} /><div className="range-labels"><span>More permissive</span><span>More selective</span></div><p>Cosine similarity, not a confidence percentage.</p></section>
               </div>
             </div>
-            <div className="metrics-grid"><Metric icon={<Fingerprint size={18} />} label="SIMILARITY" value={score === null || score === undefined ? '—' : score.toFixed(3)} detail={score === null || score === undefined ? 'Run a test to compare' : score >= threshold ? 'Above your threshold' : 'Below your threshold'} good={score !== null && score !== undefined && score >= threshold} /><Metric icon={<Activity size={18} />} label="INFERENCE TIME" value={observation ? `${Math.round(observation.latency_ms)}` : '—'} unit={observation ? 'ms' : ''} detail="Local CPU · detection + embedding" /><Metric icon={<Cpu size={18} />} label="RECOGNITION ENGINE" value="SFace" detail="YuNet detection · ONNX models" /><Metric icon={<FolderLock size={18} />} label="PROFILE STORAGE" value={status?.storage || '—'} detail={status?.storage === 'Windows DPAPI' ? 'Encrypted for this Windows user' : 'Enrollment lasts for this process'} /></div>
+            <div className="metrics-grid">
+              <Metric icon={<Fingerprint size={18} />} label="SIMILARITY" value={score === null || score === undefined ? '—' : score.toFixed(3)} detail={observation?.identity_checked === false ? 'Recent identity match · live eye tracking' : score === null || score === undefined ? 'Run a test to compare' : score >= threshold ? 'Above your threshold' : 'Below your threshold'} good={score !== null && score !== undefined && score >= threshold} />
+              <Metric icon={<Activity size={18} />} label="INFERENCE TIME" value={observation ? `${Math.round(observation.latency_ms)}` : '—'} unit={observation ? 'ms' : ''} detail={observation?.identity_checked === false ? 'Local CPU · fast eye tracking' : 'Local CPU · face + eye verification'} />
+              <Metric icon={<Cpu size={18} />} label="RECOGNITION ENGINE" value="SFace" detail="YuNet detection · ONNX models" />
+              <Metric icon={<FolderLock size={18} />} label="PROFILE STORAGE" value={status?.storage || '—'} detail={status?.storage === 'Windows DPAPI' ? 'Encrypted for this Windows user' : 'Enrollment lasts for this process'} />
+            </div>
             <section className="card activity-preview"><div className="card-heading"><div><Activity size={17} /><h2>Recent activity</h2></div><button className="text-button" disabled={!!busy} onClick={() => navigate('activity')}>View session<ArrowRight size={14} /></button></div><EventList entries={logs.slice(0, 3)} /></section>
           </>}
 

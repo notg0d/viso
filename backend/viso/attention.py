@@ -30,12 +30,42 @@ def eye_state(left: float, right: float, left_ear: float, right_ear: float) -> s
         return "unknown"
     if min(left, right) < 0 or max(left, right) > 1 or min(left_ear, right_ear) <= 0:
         return "unknown"
-    # Hysteresis: uncertain/partly closed eyes never count as open or as a blink.
+    # Keep the open-eye gate strict. Closure is also checked relative to the
+    # current person's open-eye geometry by EyeCalibration during an attempt.
     if max(left, right) <= .30 and min(left_ear, right_ear) >= .18:
         return "open"
     if min(left, right) >= .60 and max(left_ear, right_ear) <= .21:
         return "closed"
     return "uncertain"
+
+
+class EyeCalibration:
+    """Attempt-local baseline: a quick, bilateral geometry drop can be a blink.
+
+    Only already-confirmed open eyes train it. It never makes the open-eye gate
+    more permissive and is discarded on lost/changed identity or tracking.
+    """
+
+    def __init__(self):
+        self.samples: list[tuple[float, float, float, float]] = []
+
+    def classify(self, attention: Attention, calibrating: bool = False) -> str:
+        values = (attention.left_blink, attention.right_blink, attention.left_ear, attention.right_ear)
+        if any(value is None for value in values) or not np.isfinite(values).all():
+            return attention.eyes
+        if attention.eyes == "unknown":
+            return "unknown"
+        if attention.eyes == "open" and calibrating:
+            self.samples = (self.samples + [values])[-12:]
+        if attention.eyes in ("open", "closed") or len(self.samples) < 3:
+            return attention.eyes
+        left, right, left_ear, right_ear = values
+        base_left, base_right, base_left_ear, base_right_ear = np.median(self.samples, axis=0)
+        if (left >= max(.35, base_left + .20) and right >= max(.35, base_right + .20)
+                and left_ear <= min(.21, base_left_ear * .72)
+                and right_ear <= min(.21, base_right_ear * .72)):
+            return "closed"
+        return "uncertain"
 
 
 def head_angles(matrix: np.ndarray) -> tuple[float, float, float]:

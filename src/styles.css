@@ -121,6 +121,15 @@ h1 { font-size: clamp(30px, 3vw, 42px); font-weight: 480; letter-spacing: -1.7px
 .guide-steps > span.current { border-color: #d7f6b3; box-shadow: 0 0 0 3px #c1dd9544; }
 .guide-steps small { position: absolute; top: 23px; font-size: 8px; text-transform: capitalize; }
 .direction-cue { display: grid; place-items: center; width: 56px; height: 56px; margin: 10px 0; background: #183424d9; border: 1px solid #b4d899; border-radius: 50%; }
+.pose-target { position: relative; width: 132px; height: 86px; margin: 8px 0 4px; background: #10231cec; border: 1px solid #9ebc8299; border-radius: 9px; overflow: hidden; }
+.pose-cross { position: absolute; background: #bdd3a52b; }
+.pose-cross.horizontal { width: 100%; height: 1px; top: 50%; left: 0; }
+.pose-cross.vertical { height: 100%; width: 1px; left: 50%; top: 0; }
+.pose-zone { position: absolute; transform: translate(-50%, -50%); border: 1px solid #b2d894; border-radius: 6px; background: #82b75a45; transition: all .15s ease; }
+.pose-dot { position: absolute; width: 9px; height: 9px; transform: translate(-50%, -50%); background: white; border: 1px solid #122a1b; border-radius: 50%; box-shadow: 0 0 5px #fff9; transition: left .08s linear, top .08s linear; }
+.pose-dot.aligned { background: #b2f387; }
+.pose-direction { position: absolute; right: 4px; top: 3px; opacity: .7; }
+.pose-target-label { font-size: 9px; padding: 3px 6px; border-radius: 4px; background: #142a1fe8; }
 .enrollment-guide h3 { font-size: 16px; font-weight: 550; padding: 7px 12px; background: #142a1fe8; border-radius: 6px; }
 .enrollment-guide p { font-size: 10px; margin-top: 5px; padding: 5px 8px; background: #142a1fe8; border-radius: 5px; }
 .pose-hold { width: 155px; height: 5px; border-radius: 5px; background: #102017b3; overflow: hidden; margin-top: 9px; }

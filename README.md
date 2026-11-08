@@ -15,6 +15,8 @@ This build runs real face detection and recognition against a **simulated lock s
 - MediaPipe eye-state and head-pose measurements, using a pinned Face Landmarker model.
 - A simulated unlock after identity matching → prompted blink → both eyes reopened.
 - Automatic capture only when the requested enrollment pose is held steady with both eyes open.
+- Buffered camera sampling for short blinks, lightweight face detection, and a fast eye-tracking path while waiting for a blink.
+- Neutral-calibrated enrollment targets, smaller turns, and averaged samples from each stable hold.
 - Adjustable cosine-similarity threshold and measured inference latency.
 - One enrolled identity, encrypted with current-user Windows DPAPI by default.
 - Ephemeral mode for a completely memory-only enrollment session.
@@ -49,12 +51,12 @@ The model download is about 43 MB. Dependencies/models need the internet during 
 ### Try it with a webcam
 
 1. Select **Live camera** and click **Enable camera**. Allow the browser's camera request.
-2. Enter a profile name and click **Enroll face**. Follow the on-screen arrows: center, your left, your right, chin up, chin down. The preview is mirrored, so the arrows point in your direction of movement.
-3. Hold each requested angle for about half a second with both eyes open. Viso captures it automatically. **Cancel enrollment** or **Escape** discards the unfinished sequence.
+2. Enter a profile name and click **Enroll face**. Move the white dot into the green target: center, your left, your right, chin up, chin down. The preview is mirrored, so the arrows point in your direction of movement.
+3. Hold each requested angle briefly with both eyes open. Viso averages the stable frames and captures automatically. Return to center between turns when prompted. **Cancel enrollment** or **Escape** discards the unfinished sequence.
 4. Click **Test face unlock**. Look at the camera, **blink both eyes when prompted**, then reopen them. The simulator unlocks only after it confirms your eyes are open again.
 5. Click **Lock again** to repeat. Every new attempt needs a new blink. **Stop test** or **Escape** cancels a running scan.
 
-Use modest head movements, even lighting, and a camera near eye level. Enrollment expires after 90 seconds; unlock attempts expire after 20 seconds. If a quick blink is missed, try a slightly slower blink. Holding the eyes closed for over 1.5 seconds resets the challenge.
+Use small head movements, even lighting, and a camera near eye level. Enrollment expires after 90 seconds; unlock attempts expire after 20 seconds. Blink normally after the prompt, then reopen both eyes. A sampled brief closure is sufficient; holding the eyes closed for over 0.8 seconds resets the challenge. Camera frames are sampled independently of network replies to reduce missed blinks.
 
 The camera stops when you leave the test-bench page, switch input modes, or hide the browser tab. Restart it with **Enable camera**.
 
@@ -104,6 +106,6 @@ docs/                      Architecture and test-environment notes
 - **Service unavailable:** start the Python service, then use **Engine connected / Service unavailable** to reconnect. If the process restarted during an operation, refresh the page.
 - **Port in use:** stop the previous Viso process or use `start.ps1 -Port 8766`. The Vite dev proxy specifically uses port 8765.
 - **Models unavailable/corrupt:** rerun `setup.ps1`; model checksums are verified before loading.
-- **Upgrading from 0.1:** stop the old service before setup, then restart it. Persistent SFace profiles remain compatible; delete/re-enroll to collect the new guided angles. Ephemeral profiles last only for their original process. The new UI refuses a backend without blink verification.
+- **Upgrading:** restart the service and refresh the browser to load the matching camera pipeline. Persistent SFace profiles remain compatible; re-enroll to collect the improved guided samples. Ephemeral profiles last only for their original process. The new UI checks backend camera-pipeline compatibility.
 - **Eyes not confirmed open:** improve lighting, reduce glare on glasses, move closer, and face the camera more directly. The eye thresholds are experimental and may need tuning after real-camera testing.
 - **Profile cannot be opened:** DPAPI storage belongs to the Windows user/machine that created it. Use **Reset profile** to remove an unreadable sandbox profile, then enroll again.

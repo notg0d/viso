@@ -1,4 +1,4 @@
-import type { Attempt, Enrollment, EnrollmentFrame, FrameResult, Observation, Source, Status } from './types'
+import type { Attempt, CameraFrame, Enrollment, EnrollmentFrame, FrameResult, Observation, Source, Status } from './types'
 
 let token = ''
 
@@ -23,9 +23,9 @@ async function request<T>(path: string, method = 'GET', body?: unknown, signal?:
 export const api = {
   async status() {
     const status = await request<Status>('/status')
-    if (status.liveness !== 'blink-and-open-eyes') {
+    if (status.liveness !== 'blink-and-open-eyes' || status.camera_pipeline !== 'buffered-v1') {
       token = ''
-      throw new Error('This service predates blink verification. Open the updated Viso service, or restart the service with the current code.')
+      throw new Error('This service needs the camera-pipeline update. Open the updated Viso service, or restart the service with the current code.')
     }
     token = status.token
     return status
@@ -39,5 +39,6 @@ export const api = {
   analyze: (image: string) => request<Observation>('/analyze', 'POST', { image }),
   start: (source: Source, threshold: number, signal?: AbortSignal) => request<Attempt>('/attempts', 'POST', { source, threshold }, signal),
   frame: (id: string, image: string, signal?: AbortSignal) => request<FrameResult>(`/attempts/${id}/frame`, 'POST', { image }, signal),
+  frames: (id: string, frames: CameraFrame[], signal?: AbortSignal) => request<FrameResult>(`/attempts/${id}/frames`, 'POST', { frames }, signal),
   cancel: (id: string) => request<{ state: string }>(`/attempts/${id}`, 'DELETE'),
 }

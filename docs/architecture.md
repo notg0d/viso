@@ -5,13 +5,14 @@
 ```text
 React / TypeScript UI
   ├─ Browser webcam capture or user-selected JPEG/PNG
-  ├─ Resize to at most 960 pixels on the longest side
+  ├─ Reusable capture canvas; original detail retained up to 960 pixels
+  ├─ Independent ~20 Hz video-frame sampling, up to 6 buffered frames
   └─ Same-origin JSON requests
                   │
           127.0.0.1:8765
                   │
 Python sandbox service (one serialized inference/state owner)
-  ├─ YuNet ONNX: face box + five landmarks
+  ├─ YuNet ONNX: 320-pixel detection, map face/landmarks to original resolution
   ├─ Reject zero/multiple faces and unusable crops
   ├─ SFace ONNX: alignment → 128 floats → L2 normalization
   ├─ Cosine similarity against the enrolled centroid
@@ -30,8 +31,9 @@ This is a fresh Viso implementation inspired by Glance's experience. Glance's Sw
 - Enrollment: 5 guided camera poses or 1–5 image samples. Every sample must contain exactly one usable face with both eyes open.
 - Every pair of enrollment samples must have cosine similarity of at least 0.50. The final template is their normalized mean.
 - Default match threshold: 0.55, adjustable between 0.35 and 0.90 in the test bench.
-- Camera attempts need 3 open-eye identity matches over at least 150 ms, followed by a fresh blink after the prompt. Closure must be detected at least 150 ms after the prompt; both eyes must reopen within 1.5 seconds, then remain open for a second confirmation at least 120 ms later.
-- Every frame in the challenge must match the enrolled identity. Wrong/unusable faces, missing eye tracking, or gaps over 1 second discard challenge progress. A blink prompt expires after 6 seconds and needs new open-eye identity evidence.
+- Camera attempts need 3 open-eye identity matches over at least 150 ms, followed by a fresh blink after the prompt. One sampled bilateral closure suffices, including a brief blink immediately after the prompt. Both eyes must reopen within 0.8 seconds, then remain open for a second confirmation at least 120 ms later.
+- Identity is measured on every initial, closed/uncertain-eye, reopening, and confirmation frame. While waiting with both eyes open, SFace results can be reused for less than 200 ms only when the face-box overlap is at least 0.80 IoU. Face detection, quality gates, and eye measurements still run on every sample. The API marks these fast frames with `identity_checked: false`; the UI labels their similarity as a recent match. Insufficient face-box overlap, uncertain eyes, or an old match force full recognition.
+- Wrong/unusable faces, missing eye tracking, or gaps over 1 second discard challenge progress. A blink prompt expires after 6 seconds and needs new open-eye identity evidence.
 - Attempts expire after 20 seconds. A new attempt cancels the old one. Deleting a profile revokes attempts.
 - Image tests expose identity scores but always stay locked; setting a permissive threshold does not bypass the blink challenge.
 
@@ -43,13 +45,22 @@ These thresholds are initial test settings, not a validated authentication opera
 
 - Open: both blink coefficients ≤0.30 and both EAR ≥0.18.
 - Closed: both blink coefficients ≥0.60 and both EAR ≤0.21.
-- Intermediate/disagreeing measurements, including a wink, are uncertain and cannot count as both open or both closed. Missing/invalid landmarks and excessive pose are unknown.
+- During an attempt, at least three confirmed-open identity frames establish median eye baselines. A brief closure can also count when **both** blink coefficients rise by ≥0.20 to ≥0.35 and **both** EAR values fall to ≤72% of baseline and ≤0.21. This accommodates a sampled blink peak below the old 0.60 cutoff. It never relaxes the open-eye gate. The baseline is discarded on lost/changed identity, unknown tracking, or a reset challenge.
+- Other intermediate/disagreeing measurements, including a wink, remain uncertain. Missing/invalid landmarks and excessive pose are unknown.
 
 Model predictions can be wrong; glasses, occlusion, lighting, and different eyelid geometry require real-camera evaluation. The final open-eye check is mandatory and never inferred from identity similarity.
 
+### Capture timing
+
+`CameraSampler` uses video-frame callbacks and a reused JPEG canvas independently of HTTP requests. Sampling targets 20 Hz, retaining at most six recent frames; camera frames older than 450 ms are discarded before sending. Batches contain images and monotonic millisecond offsets relative to starting the attempt. The server validates finite, strictly increasing offsets, a six-frame limit, and a receipt-time window of -250 to +750 ms to allow initial request transit. Blink durations use capture time rather than the speed at which a buffered batch is processed. Wall-clock expiry remains server-enforced.
+
+The backend stops a batch when it first issues a blink prompt. A challenge counter tells the UI to discard pre-prompt samples, including after challenge retries. Unlock can only occur on the **last** frame of a batch, with both eyes open and a fresh identity measurement; a later closed/uncertain frame cannot be hidden behind earlier open evidence. Abort/stop releases the queue and video callback. These timestamps and frames are sandbox client input, not proof of a physical camera or replay resistance.
+
 ### Guided enrollment
 
-The backend chooses the sequence: center → subject's left → subject's right → up → down. Positive yaw is the subject's left, positive pitch is chin down; the browser mirrors only the preview. The first neutral sample establishes a pitch/yaw baseline. Turns target 12–28° yaw; up/down target 10–23° pitch relative to neutral, with limits on other axes. Three observations spanning at least 450 ms, with pose drift ≤4°, are required for a capture. Every sample must match every earlier sample at ≥0.50 cosine similarity. Wrong poses/faces or closed eyes reset the current hold. A 90-second timeout or cancellation discards unfinished samples. Only the explicit finish endpoint writes the profile once all five poses are complete.
+The backend chooses center → subject's left → subject's right → up → down, requiring a brief return to neutral between directional captures. Positive yaw is the subject's left, positive pitch is chin down; the browser mirrors only the preview. The neutral hold's median pose establishes a pitch/yaw baseline. Turns target 16° ±6° yaw; up/down target 12° ±5° pitch relative to neutral, with limits on other axes. Three observations spanning at least 350 ms, with pose drift ≤5°, are required for a capture. Each pose stores the normalized average embedding of its stable hold instead of only the last frame. Identity consistency is checked against both previous poses and frames in the current hold at ≥0.50 cosine similarity.
+
+The target diagram shows a median-of-three measured pose relative to neutral. Validation uses the actual individual poses, not smoothed display values. Feedback distinguishes chin movement, left/right correction, recentering, and unwanted sideways tilt. Wrong poses/faces or closed eyes reset the current hold. A 90-second timeout or cancellation discards unfinished samples. Only the explicit finish endpoint writes the profile once all five poses are complete.
 
 The SFace model ID and embedding format are unchanged, so old persistent profiles can still be matched. New guided profiles record pose labels/angles in encrypted metadata.
 
@@ -75,9 +86,10 @@ Persistent sandbox templates use `CryptProtectData` with current-user scope. DPA
 | POST | `/api/analyze` | Inspect `{image}` without an unlock decision |
 | POST | `/api/attempts` | Start `{source, threshold}` |
 | POST | `/api/attempts/{id}/frame` | Evaluate `{image}` for that simulated attempt |
+| POST | `/api/attempts/{id}/frames` | Evaluate 1–6 `{image, offset_ms}` camera samples in order |
 | DELETE | `/api/attempts/{id}` | Cancel an attempt |
 
-Mutating requests require the `X-Viso-Token` from `/api/status`. Image values are JPEG/PNG data URLs. Eye states, pose values, and blink claims supplied by a client are ignored: the backend measures them. Responses expose measurements and simulated state, not an operating-system authentication capability. The UI requires the `blink-and-open-eyes` capability before enabling tests.
+Mutating requests require the `X-Viso-Token` from `/api/status`. Image values are JPEG/PNG data URLs. Eye states, pose values, and blink claims supplied by a client are ignored: the backend measures them. Responses expose measurements and simulated state, not an operating-system authentication capability. The UI requires `liveness: "blink-and-open-eyes"` and `camera_pipeline: "buffered-v1"` before enabling tests.
 
 ## Windows milestones
 

@@ -1,8 +1,10 @@
 """Identity-bound blink challenge for simulated unlocks only."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 from time import monotonic
+
+from .attention import Attention, EyeCalibration
 
 
 @dataclass
@@ -21,14 +23,37 @@ class Attempt:
     prompted_at: float | None = None
     closed_at: float | None = None
     reopened_at: float | None = None
+    calibration: EyeCalibration = field(default_factory=EyeCalibration)
+    last_capture_ms: float = -1
+    challenge: int = 0
+    last_identity_at: float | None = None
+    last_identity_box: list | None = None
+    last_identity_score: float | None = None
 
     def reset(self, message: str):
         self.streak = 0
         self.phase = "identity"
         self.open_at = self.prompted_at = self.closed_at = self.reopened_at = None
         self.message = message
+        self.calibration = EyeCalibration()
+        self.last_identity_at = self.last_identity_box = self.last_identity_score = None
 
-    def observe(self, score: float | None, eyes: str = "unknown", now: float | None = None) -> dict:
+    def can_track_open_eyes(self, attention: Attention, box: list, now: float) -> bool:
+        # A light eye-check lane only while waiting for a blink. All evidence
+        # frames (including closure, reopening, and final confirmation) get SFace.
+        if (self.phase != "blink" or attention.eyes != "open" or self.last_identity_at is None
+                or self.prompted_at is None or now - self.prompted_at > 6
+                or not 0 < now - self.last_identity_at < .2 or self.last_identity_box is None
+                or self.last_identity_score is None or self.last_identity_score < self.threshold):
+            return False
+        x, y, w, h = box
+        bx, by, bw, bh = self.last_identity_box
+        intersection = max(0, min(x + w, bx + bw) - max(x, bx)) * max(0, min(y + h, by + bh) - max(y, by))
+        union = w * h + bw * bh - intersection
+        return union > 0 and intersection / union >= .8
+
+    def observe(self, score: float | None, eyes: str = "unknown", now: float | None = None,
+                attention: Attention | None = None, latest: bool = True) -> dict:
         now = monotonic() if now is None else now
         if self.state != "scanning":
             return self.public()
@@ -46,6 +71,8 @@ class Attempt:
         if score is None or not isfinite(score) or score < self.threshold:
             self.reset("Keep your enrolled face centered and clearly visible.")
             return self.public()
+        if attention is not None:
+            eyes = self.calibration.classify(attention, calibrating=self.phase == "identity")
         if self.source != "camera":
             self.reset("Identity matched. A still image cannot complete the live blink challenge.")
             self.state = "blocked"
@@ -65,24 +92,27 @@ class Attempt:
                 self.message = "Face matched. Keep both eyes open…"
                 if self.streak >= 3 and now - self.open_at >= .15:
                     self.phase, self.prompted_at = "blink", now
+                    self.challenge += 1
                     self.message = "Blink both eyes now, then reopen them."
         elif self.phase == "blink":
-            if eyes == "closed" and now - self.prompted_at >= .15:
+            # The client drops pre-prompt buffered frames. A single sampled
+            # bilateral closure is enough; there is no long eye-hold requirement.
+            if eyes == "closed" and now > self.prompted_at:
                 self.phase, self.closed_at = "reopen", now
                 self.message = "Blink detected. Reopen both eyes."
         elif self.phase == "reopen":
-            if now - self.closed_at > 1.5:
+            if now - self.closed_at > .8:
                 self.reset("Eyes stayed closed too long. Open them and try a short blink.")
-            elif eyes == "open" and now - self.closed_at >= .06:
+            elif eyes == "open":
                 self.phase, self.reopened_at = "confirm", now
                 self.message = "Keep both eyes open to finish."
         elif self.phase == "confirm":
             if eyes != "open":
                 self.reset("Both eyes must stay open to unlock. Please blink again when prompted.")
-            elif now - self.reopened_at >= .12:
+            elif latest and now - self.reopened_at >= .12:
                 self.phase, self.state = "complete", "unlocked"
                 self.message = "Face matched, blink verified, both eyes open."
         return self.public()
 
     def public(self) -> dict:
-        return {"id": self.id, "state": self.state, "streak": self.streak, "required": 3, "source": self.source, "threshold": self.threshold, "phase": self.phase, "message": self.message}
+        return {"id": self.id, "state": self.state, "streak": self.streak, "required": 3, "source": self.source, "threshold": self.threshold, "phase": self.phase, "message": self.message, "challenge": self.challenge}

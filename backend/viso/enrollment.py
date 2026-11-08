@@ -5,7 +5,7 @@ from time import monotonic
 
 import numpy as np
 
-from .recognition import Observation, similarity
+from .recognition import Observation, normalized, similarity
 
 STEPS = (
     ("center", "Look straight at the camera", "Keep your head upright and both eyes open."),
@@ -15,19 +15,17 @@ STEPS = (
     ("down", "Lower your chin slightly", "Look a little downward, keeping your eyes open."),
 )
 
+TARGETS = {"center": (0, 0, 7, 18), "left": (16, 0, 6, 9), "right": (-16, 0, 6, 9),
+           "up": (0, -12, 9, 5), "down": (0, 12, 9, 5)}
+
 
 def pose_matches(step: str, yaw: float, pitch: float, roll: float) -> bool:
     if not np.isfinite([yaw, pitch, roll]).all() or abs(roll) > 12:
         return False
-    if step == "center":
-        return abs(yaw) <= 10 and abs(pitch) <= 18
-    if step in ("left", "right"):
-        directed = yaw if step == "left" else -yaw
-        return 12 <= directed <= 28 and abs(pitch) <= 10
-    if step in ("up", "down"):
-        directed = -pitch if step == "up" else pitch
-        return 10 <= directed <= 23 and abs(yaw) <= 10
-    return False
+    if step not in TARGETS:
+        return False
+    target_yaw, target_pitch, tolerance_yaw, tolerance_pitch = TARGETS[step]
+    return abs(yaw - target_yaw) <= tolerance_yaw and abs(pitch - target_pitch) <= tolerance_pitch
 
 
 @dataclass
@@ -45,11 +43,16 @@ class Enrollment:
     last_frame_at: float | None = None
     held_pose: tuple | None = None
     hold_progress: float = 0
+    hold_samples: list = field(default_factory=list)
+    returning: bool = False
+    measured_pose: tuple | None = None
+    pose_history: list = field(default_factory=list)
 
     def reset_hold(self):
         self.hold_at = self.held_pose = None
         self.hold_frames = 0
         self.hold_progress = 0
+        self.hold_samples.clear()
 
     def expire(self, now: float) -> bool:
         if now - self.started_at > 90:
@@ -57,6 +60,8 @@ class Enrollment:
             self.message = "Enrollment timed out. Start again when you are ready."
             self.embeddings.clear()
             self.poses.clear()
+            self.baseline = self.measured_pose = None
+            self.pose_history.clear()
             self.reset_hold()
         return self.state == "expired"
 
@@ -70,13 +75,21 @@ class Enrollment:
             return self.public()
         self.last_frame_at = now
         attention = observation.attention
+        self.measured_pose = None
+        if attention is not None and all(value is not None for value in (attention.yaw, attention.pitch, attention.roll)):
+            raw_pose = (attention.yaw, attention.pitch, attention.roll)
+            if np.isfinite(raw_pose).all():
+                self.pose_history = (self.pose_history + [raw_pose])[-3:]
+                measured = np.median(self.pose_history, axis=0)
+                self.measured_pose = (float(measured[0] - (self.baseline[0] if self.baseline else 0)),
+                                      float(measured[1] - (self.baseline[1] if self.baseline else 0)))
         if observation.embedding is None or observation.face_count != 1:
             self.reset_hold()
             self.message = observation.message
         elif attention is None or attention.eyes != "open" or any(value is None for value in (attention.yaw, attention.pitch, attention.roll)):
             self.reset_hold()
             self.message = "Keep both eyes open and clearly visible."
-        elif any(similarity(observation.embedding, other) < .50 for other in self.embeddings):
+        elif any(similarity(observation.embedding, other) < .50 for other in self.embeddings + [item[0] for item in self.hold_samples]):
             self.reset_hold()
             self.message = "This face does not match the earlier samples. Return to the same person."
         else:
@@ -84,30 +97,62 @@ class Enrollment:
             if self.baseline:
                 yaw, pitch = yaw - self.baseline[0], pitch - self.baseline[1]
             step = STEPS[len(self.embeddings)][0]
-            if not pose_matches(step, yaw, pitch, roll):
+            matches = (abs(yaw) <= 6 and abs(pitch) <= 6 and abs(roll) <= 12) if self.returning else pose_matches(step, yaw, pitch, roll)
+            if not matches:
                 self.reset_hold()
-                self.message = "Follow the arrow with a small head movement; keep your head upright."
+                if abs(roll) > 12:
+                    self.message = "Keep your head upright; turn instead of tilting sideways."
+                elif self.returning:
+                    self.message = "Face the camera again. Bring the dot into the center target."
+                else:
+                    target_yaw, target_pitch, tolerance_yaw, tolerance_pitch = TARGETS[step]
+                    if abs(pitch - target_pitch) > tolerance_pitch:
+                        self.message = "Lift your chin a little." if pitch > target_pitch else "Lower your chin a little."
+                    else:
+                        self.message = "Turn a little to your left." if yaw < target_yaw else "Turn a little to your right."
             else:
-                if self.held_pose is not None and max(abs(yaw - self.held_pose[0]), abs(pitch - self.held_pose[1]), abs(roll - self.held_pose[2])) > 4:
+                if self.held_pose is not None and max(abs(yaw - self.held_pose[0]), abs(pitch - self.held_pose[1]), abs(roll - self.held_pose[2])) > 5:
                     self.reset_hold()
                 if self.hold_at is None:
                     self.hold_at, self.held_pose = now, (yaw, pitch, roll)
                 self.hold_frames += 1
-                self.hold_progress = min(1, (now - self.hold_at) / .45)
+                self.hold_samples.append((observation.embedding.copy(), (attention.yaw, attention.pitch, attention.roll)))
+                self.hold_samples = self.hold_samples[-12:]
+                duration = .2 if self.returning else .35
+                self.hold_progress = min(1, (now - self.hold_at) / duration)
                 self.message = "Perfect. Hold this position…"
-                if self.hold_frames >= 3 and now - self.hold_at >= .45:
-                    self.embeddings.append(observation.embedding.copy())
-                    self.poses.append({"step": step, "yaw": round(attention.yaw, 1), "pitch": round(attention.pitch, 1)})
+                if self.hold_frames >= 3 and now - self.hold_at >= duration:
+                    if self.returning:
+                        self.returning = False
+                        self.reset_hold()
+                        self.message = "Centered. Follow the next direction."
+                        return self.public()
+                    # Aggregate a stable hold instead of saving its last, possibly
+                    # noisy frame. Neutral calibration uses the same robust hold.
+                    pose = np.median([item[1] for item in self.hold_samples], axis=0)
+                    self.embeddings.append(normalized(np.mean([item[0] for item in self.hold_samples], axis=0)))
+                    self.poses.append({"step": step, "yaw": round(float(pose[0]), 1), "pitch": round(float(pose[1]), 1)})
                     if self.baseline is None:
-                        self.baseline = (attention.yaw, attention.pitch)
+                        self.baseline = (float(pose[0]), float(pose[1]))
                     self.reset_hold()
                     self.message = "Angle captured. Follow the next direction."
+                    self.returning = len(self.embeddings) > 1
                     if len(self.embeddings) == len(STEPS):
                         self.state = "ready"
+                        self.returning = False
                         self.message = "All five angles captured."
         return self.public()
 
     def public(self) -> dict:
         index = len(self.embeddings)
         step = STEPS[min(index, len(STEPS) - 1)]
-        return {"id": self.id, "state": self.state, "captured": index, "total": len(STEPS), "step": step[0], "title": step[1], "instruction": step[2], "message": self.message, "hold_progress": round(self.hold_progress, 2), "steps": [item[0] for item in STEPS]}
+        target = (0, 0, 6, 6) if self.returning else TARGETS[step[0]]
+        guidance = {"yaw": round(self.measured_pose[0], 1) if self.measured_pose else None,
+                    "pitch": round(self.measured_pose[1], 1) if self.measured_pose else None,
+                    "target_yaw": target[0], "target_pitch": target[1],
+                    "tolerance_yaw": target[2], "tolerance_pitch": target[3]}
+        return {"id": self.id, "state": self.state, "captured": index, "total": len(STEPS), "step": step[0],
+                "title": "Return to the center" if self.returning else step[1],
+                "instruction": "Face the camera before the next angle." if self.returning else step[2],
+                "message": self.message, "hold_progress": round(self.hold_progress, 2),
+                "steps": [item[0] for item in STEPS], "returning": self.returning, "guidance": guidance}

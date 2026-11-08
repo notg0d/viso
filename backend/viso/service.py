@@ -6,7 +6,7 @@ from time import monotonic
 
 import numpy as np
 
-from .recognition import DEFAULT_THRESHOLD, MODEL_ID, FaceEngine, InputError, decode_image, normalized, similarity
+from .recognition import DEFAULT_THRESHOLD, MODEL_ID, FaceEngine, InputError, Observation, decode_image, normalized, similarity
 from .sessions import Attempt
 from .enrollment import Enrollment
 from .storage import ProfileStore
@@ -30,7 +30,7 @@ class SandboxService:
 
     def status(self) -> dict:
         return {
-            "version": "0.2.0",
+            "version": "0.3.0",
             "mode": "sandbox",
             "token": self.token,
             "engine": {"ready": self.engine is not None, "id": MODEL_ID, "message": self.engine_error},
@@ -39,6 +39,7 @@ class SandboxService:
             "storage_error": self.store.error,
             "threshold": DEFAULT_THRESHOLD,
             "liveness": "blink-and-open-eyes",
+            "camera_pipeline": "buffered-v1",
         }
 
     def score(self, observation) -> float | None:
@@ -46,10 +47,10 @@ class SandboxService:
             return None
         return similarity(observation.embedding, np.asarray(self.store.profile["embedding"]))
 
-    def observe(self, data: dict):
+    def observe(self, data: dict, skip_recognition=None):
         if self.engine is None:
             raise ApiError(self.engine_error or "Recognition engine is unavailable.", 503)
-        return self.engine.observe(decode_image(data.get("image")))
+        return self.engine.observe(decode_image(data.get("image")), skip_recognition=skip_recognition)
 
     def save_profile(self, name: str, embeddings: list, source: str, poses: list | None = None):
         self.store.save({
@@ -70,6 +71,51 @@ class SandboxService:
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 40:
             raise ApiError("Enter a profile name between 1 and 40 characters.")
         return name.strip()
+
+    def attempt_frames(self, attempt: Attempt, data: dict) -> dict:
+        """Bounded, ordered camera samples; eye/identity evidence is always measured.
+
+        Offsets use the browser's monotonic capture clock relative to starting the
+        attempt. They preserve blink duration across HTTP batching, with a small
+        allowance for initial request transit. This sandbox cannot attest cameras.
+        """
+        received = monotonic()
+        if received - attempt.started_at > 20:
+            return {"observation": Observation(0, "Test expired.").public(),
+                    "attempt": attempt.observe(None, now=received)}
+        frames = data.get("frames")
+        if attempt.source != "camera" or not isinstance(frames, list) or not 1 <= len(frames) <= 6:
+            raise ApiError("Send between one and six camera frames.")
+        previous = attempt.last_capture_ms
+        for frame in frames:
+            offset = frame.get("offset_ms") if isinstance(frame, dict) else None
+            if (isinstance(offset, bool) or not isinstance(offset, (int, float)) or not math.isfinite(offset)
+                    or offset < 0 or offset <= previous):
+                raise ApiError("Camera samples must have increasing capture times.")
+            age = received - (attempt.started_at + offset / 1000)
+            if not -.25 <= age <= .75:
+                attempt.reset("Camera frames were delayed. Look at the camera again.")
+                raise ApiError("Camera frames are stale. Stop the test and try again.", 409)
+            previous = offset
+        for index, frame in enumerate(frames):
+            phase = attempt.phase
+            captured = attempt.started_at + frame["offset_ms"] / 1000
+            observation = self.observe(frame, skip_recognition=lambda attention, box: attempt.can_track_open_eyes(attention, box, captured))
+            if observation.identity_checked:
+                score = self.score(observation)
+                attempt.last_identity_at, attempt.last_identity_box, attempt.last_identity_score = captured, observation.box, score
+            else:
+                score = attempt.last_identity_score
+            attempt.last_capture_ms = frame["offset_ms"]
+            result = attempt.observe(score, now=captured,
+                                     attention=observation.attention, latest=index == len(frames) - 1)
+            # Send the prompt before processing any more images. Already-buffered
+            # images cannot answer a challenge the user has not seen yet.
+            if phase == "identity" and attempt.phase == "blink":
+                break
+            if result["state"] != "scanning":
+                break
+        return {"observation": observation.public(score), "attempt": result}
 
     def dispatch(self, method: str, path: str, data: dict | None = None) -> dict:
         # OpenCV models and the profile/attempt state have one serialized owner.
@@ -162,5 +208,9 @@ class SandboxService:
                     raise ApiError("The enrolled profile changed. Start a new test.", 409)
                 observation = self.observe(data)
                 score = self.score(observation)
-                return {"observation": observation.public(score), "attempt": attempt.observe(score, observation.attention.eyes if observation.attention else "unknown")}
+                return {"observation": observation.public(score), "attempt": attempt.observe(score, attention=observation.attention)}
+            if method == "POST" and len(parts) == 4 and parts[3] == "frames":
+                if not self.store.profile or self.store.profile["id"] != attempt.profile_id:
+                    raise ApiError("The enrolled profile changed. Start a new test.", 409)
+                return self.attempt_frames(attempt, data)
         raise ApiError("Endpoint not found.", 404)
