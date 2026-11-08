@@ -1,0 +1,25 @@
+{
+  "name": "viso",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Viso — local Windows face-unlock test bench",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "lucide-react": "1.70.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "6.2.1",
+    "typescript": "~5.9.3",
+    "vite": "8.3.6"
+  }
+}

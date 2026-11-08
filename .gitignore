@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.venv/
+.viso/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+models/*.onnx
+models/*.task
+models/*.partial
+models/licenses/
+tests/.fixtures/
+*.log
+*.tsbuildinfo
+test-results/
+playwright-report/
+.env

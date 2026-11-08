@@ -1,0 +1,166 @@
+import math
+import secrets
+import threading
+from datetime import datetime, timezone
+from time import monotonic
+
+import numpy as np
+
+from .recognition import DEFAULT_THRESHOLD, MODEL_ID, FaceEngine, InputError, decode_image, normalized, similarity
+from .sessions import Attempt
+from .enrollment import Enrollment
+from .storage import ProfileStore
+
+
+class ApiError(Exception):
+    def __init__(self, message: str, status: int = 400):
+        self.message = message
+        self.status = status
+
+
+class SandboxService:
+    def __init__(self, engine: FaceEngine | None, store: ProfileStore, engine_error: str | None = None):
+        self.engine = engine
+        self.store = store
+        self.engine_error = engine_error
+        self.token = secrets.token_urlsafe(32)
+        self.lock = threading.Lock()
+        self.attempts: dict[str, Attempt] = {}
+        self.enrollment: Enrollment | None = None
+
+    def status(self) -> dict:
+        return {
+            "version": "0.2.0",
+            "mode": "sandbox",
+            "token": self.token,
+            "engine": {"ready": self.engine is not None, "id": MODEL_ID, "message": self.engine_error},
+            "profile": self.store.public(),
+            "storage": self.store.label,
+            "storage_error": self.store.error,
+            "threshold": DEFAULT_THRESHOLD,
+            "liveness": "blink-and-open-eyes",
+        }
+
+    def score(self, observation) -> float | None:
+        if observation.embedding is None or self.store.profile is None:
+            return None
+        return similarity(observation.embedding, np.asarray(self.store.profile["embedding"]))
+
+    def observe(self, data: dict):
+        if self.engine is None:
+            raise ApiError(self.engine_error or "Recognition engine is unavailable.", 503)
+        return self.engine.observe(decode_image(data.get("image")))
+
+    def save_profile(self, name: str, embeddings: list, source: str, poses: list | None = None):
+        self.store.save({
+            "id": secrets.token_hex(12), "name": name.strip(), "model_id": MODEL_ID,
+            "embedding": normalized(np.mean(embeddings, axis=0)).tolist(),
+            "samples": len(embeddings), "source": source,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "guided": poses is not None, "poses": poses or [],
+        })
+        self.attempts.clear()
+        self.enrollment = None
+        return self.status()
+
+    def enrollment_name(self, data: dict) -> str:
+        if self.store.profile or self.store.error:
+            raise ApiError("Remove the existing profile before enrolling again.", 409)
+        name = data.get("name")
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 40:
+            raise ApiError("Enter a profile name between 1 and 40 characters.")
+        return name.strip()
+
+    def dispatch(self, method: str, path: str, data: dict | None = None) -> dict:
+        # OpenCV models and the profile/attempt state have one serialized owner.
+        with self.lock:
+            try:
+                return self._dispatch(method, path, data or {})
+            except InputError as error:
+                raise ApiError(str(error)) from error
+
+    def _dispatch(self, method: str, path: str, data: dict) -> dict:
+        if method == "GET" and path == "/api/status":
+            return self.status()
+        if method == "DELETE" and path == "/api/profile":
+            self.store.clear()
+            self.attempts.clear()
+            self.enrollment = None
+            return self.status()
+        if method == "POST" and path == "/api/analyze":
+            observation = self.observe(data)
+            return observation.public(self.score(observation))
+        if method == "POST" and path == "/api/enroll":
+            name = self.enrollment_name(data)
+            images = data.get("images")
+            source = data.get("source")
+            if source != "image":
+                raise ApiError("Camera enrollment requires the guided pose sequence.")
+            if not isinstance(images, list) or not 1 <= len(images) <= 5:
+                raise ApiError("Image enrollment needs 1 to 5 samples.")
+            observations = [self.observe({"image": image}) for image in images]
+            for index, observation in enumerate(observations):
+                if observation.embedding is None:
+                    raise ApiError(f"Sample {index + 1}: {observation.message}")
+                if observation.attention is None or observation.attention.eyes != "open":
+                    raise ApiError(f"Sample {index + 1}: both eyes must be open and visible.")
+            embeddings = [observation.embedding for observation in observations]
+            for index, embedding in enumerate(embeddings):
+                if any(similarity(embedding, other) < 0.5 for other in embeddings[:index]):
+                    raise ApiError("Samples do not consistently match one face. Try again with small changes in angle.")
+            return self.save_profile(name, embeddings, source)
+        if method == "POST" and path == "/api/enrollments":
+            name = self.enrollment_name(data)
+            self.enrollment = Enrollment(secrets.token_hex(16), name, monotonic())
+            self.attempts.clear()
+            return self.enrollment.public()
+        parts = path.strip("/").split("/")
+        if len(parts) >= 3 and parts[:2] == ["api", "enrollments"]:
+            enrollment = self.enrollment
+            if enrollment is None or enrollment.id != parts[2]:
+                raise ApiError("This enrollment has ended. Start again.", 404)
+            if method == "DELETE" and len(parts) == 3:
+                self.enrollment = None
+                return {"state": "canceled"}
+            if method == "POST" and len(parts) == 4:
+                if enrollment.expire(monotonic()):
+                    raise ApiError(enrollment.message, 409)
+                if parts[3] == "frame":
+                    observation = self.observe(data)
+                    return {"observation": observation.public(), "enrollment": enrollment.observe(observation)}
+                if parts[3] == "finish":
+                    if enrollment.state != "ready" or len(enrollment.embeddings) != 5:
+                        raise ApiError("Complete all five guided angles first.", 409)
+                    if self.store.profile or self.store.error:
+                        raise ApiError("The profile changed. Start again.", 409)
+                    return self.save_profile(enrollment.name, enrollment.embeddings, "camera", enrollment.poses)
+        if method == "POST" and path == "/api/attempts":
+            if not self.store.profile:
+                raise ApiError("Enroll a face before starting a test.", 409)
+            source = data.get("source")
+            threshold = data.get("threshold", DEFAULT_THRESHOLD)
+            if source not in ("camera", "image"):
+                raise ApiError("Choose camera or image testing.")
+            if isinstance(threshold, bool) or not isinstance(threshold, (float, int)) or not math.isfinite(threshold) or not 0.35 <= threshold <= 0.9:
+                raise ApiError("Threshold must be between 0.35 and 0.90.")
+            # New attempts invalidate earlier scans, including scans in other tabs.
+            self.attempts.clear()
+            self.enrollment = None
+            attempt = Attempt(secrets.token_hex(16), self.store.profile["id"], source, threshold, monotonic())
+            self.attempts[attempt.id] = attempt
+            return attempt.public()
+        parts = path.strip("/").split("/")
+        if len(parts) >= 3 and parts[:2] == ["api", "attempts"]:
+            attempt = self.attempts.get(parts[2])
+            if attempt is None:
+                raise ApiError("This test has ended. Start a new test.", 404)
+            if method == "DELETE" and len(parts) == 3:
+                del self.attempts[attempt.id]
+                return {"state": "locked"}
+            if method == "POST" and len(parts) == 4 and parts[3] == "frame":
+                if not self.store.profile or self.store.profile["id"] != attempt.profile_id:
+                    raise ApiError("The enrolled profile changed. Start a new test.", 409)
+                observation = self.observe(data)
+                score = self.score(observation)
+                return {"observation": observation.public(score), "attempt": attempt.observe(score, observation.attention.eyes if observation.attention else "unknown")}
+        raise ApiError("Endpoint not found.", 404)

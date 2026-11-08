@@ -1,0 +1,25 @@
+# Third-party components
+
+## Recognition models
+
+The model downloader uses OpenCV Zoo revision `48b10fa505aeb51fbd127fc60a5c660040e823b7`. Exact model sizes and SHA-256 hashes are in `models/manifest.json`.
+
+| Component | Upstream license | Source |
+|---|---|---|
+| YuNet `face_detection_yunet_2023mar.onnx` | MIT | [OpenCV Zoo / YuNet](https://github.com/opencv/opencv_zoo/tree/48b10fa505aeb51fbd127fc60a5c660040e823b7/models/face_detection_yunet) |
+| SFace `face_recognition_sface_2021dec.onnx` | Apache-2.0 | [OpenCV Zoo / SFace](https://github.com/opencv/opencv_zoo/tree/48b10fa505aeb51fbd127fc60a5c660040e823b7/models/face_recognition_sface) |
+
+Setup downloads each upstream directory's full license into `models/licenses/` alongside the models. Preserve those notices when distributing the models.
+
+MediaPipe Face Landmarker uses the versioned `face_landmarker/float16/1/face_landmarker.task` bundle from Google (Apache-2.0), SHA-256 `64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff`. It contains face detection, 478-point landmark, and blendshape prediction models. Its versioned download URL and license source are in `models/manifest.json`; [task documentation and model cards](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker/index#models) describe its intended use and limitations.
+
+## Libraries
+
+- React / React DOM — MIT.
+- Vite / TypeScript and their build dependencies — see installed package license files.
+- Lucide icons — ISC.
+- OpenCV — Apache-2.0; Python wheel distributions include their license notices.
+- NumPy — BSD-3-Clause.
+- MediaPipe — Apache-2.0; pinned Python package 0.10.32. Its transitive dependency notices are included in the installed packages. Later prebuilt SDK releases add usage telemetry ([upstream discussion](https://github.com/google-ai-edge/mediapipe/issues/6291)); reassess this before upgrading the pin.
+
+Glance inspired the product idea. No Glance code, branding assets, or InsightFace model weights are included in this implementation.
