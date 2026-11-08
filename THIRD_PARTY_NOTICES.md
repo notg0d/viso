@@ -20,6 +20,7 @@ MediaPipe Face Landmarker uses the versioned `face_landmarker/float16/1/face_lan
 - Lucide icons — ISC.
 - OpenCV — Apache-2.0; Python wheel distributions include their license notices.
 - NumPy — BSD-3-Clause.
+- The optional Windows sign-in runtime includes the installed CPython interpreter and standard library — Python Software Foundation License; its `LICENSE` file is copied into the private runtime. Dependency `.dist-info` and model license files are retained in the payload.
 - MediaPipe — Apache-2.0; pinned Python package 0.10.32. Its transitive dependency notices are included in the installed packages. Later prebuilt SDK releases add usage telemetry ([upstream discussion](https://github.com/google-ai-edge/mediapipe/issues/6291)); reassess this before upgrading the pin.
 
 ## Glance enrollment animation

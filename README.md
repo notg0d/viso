@@ -6,7 +6,7 @@
 
 Viso is a **native C#/WPF desktop application** for face enrollment, unlock testing, image inspection, profile management, and settings. Its Glance-inspired dark interface uses a segmented enrollment ring, directional light, and eased native animations. The Python/OpenCV recognition worker starts with the app and communicates over private process pipes. No browser, web server, Electron, or WebView is needed.
 
-Unlock testing currently operates a **simulator**. Windows sign-in integration is a later milestone.
+**Unlock test** is a simulator. An optional native **Windows sign-in prototype** now supports local accounts and personal Microsoft accounts through a Credential Provider and LocalSystem service. See [Windows sign-in setup](docs/windows-signin.md). Actual lock-screen/reboot authentication and service camera access still need VM validation.
 
 ### Included
 
@@ -29,8 +29,10 @@ Unlock testing currently operates a **simulator**. Windows sign-in integration i
 - One enrolled identity, encrypted with current-user Windows DPAPI by default.
 - Ephemeral mode for a completely memory-only enrollment session.
 - Identity management and exportable session events.
+- Account linking, password updates, and disable controls for local/Microsoft-account Windows sign-in.
+- x64 Credential Provider, protected per-account service storage, and a privately packaged recognition runtime.
 
-**Blink verification is enabled.** Closed, uncertain, or untrackable eyes cannot authorize an unlock. Still images can be compared for identity but cannot unlock the simulator. This is an experimental RGB-camera challenge, not validated protection against replayed/generated video or an injected camera feed. Windows sign-in integration is a later milestone.
+**Blink verification is enabled.** Closed, uncertain, or untrackable eyes cannot authorize an unlock. Still images can be compared for identity but cannot unlock. This is an experimental RGB-camera challenge, not validated protection against replayed/generated video or an injected camera feed.
 
 ## Run on Windows
 
@@ -55,6 +57,25 @@ To keep your enrollment encrypted between runs:
 ```
 
 The model download is about 43 MB. Dependencies/models need the internet during setup; recognition and the UI run locally afterward. No administrator privileges are needed. Persistent profiles use the existing `.viso/profile.dpapi` file; desktop preferences are stored in `.viso/desktop.json`.
+
+### Optional Windows sign-in
+
+The sign-in components additionally require **x64 Windows**, **Visual Studio C++ Build Tools**, and the **Windows 10/11 SDK** to build. Installation requires administrator privileges. Build and validate first:
+
+```powershell
+.\scripts\build-signin.ps1 -Test
+.\scripts\test-signin-runtime.ps1
+```
+
+In an administrator PowerShell on the test Windows machine:
+
+```powershell
+.\scripts\install-signin.ps1
+```
+
+Run Viso normally, save a five-angle camera enrollment, then use **Settings → Windows face sign-in → Link / update account**. Select **Local account** and your Windows username, or **Microsoft account** and your account email. Enter the **account password**, not a Windows Hello PIN. Passwordless-only accounts need a usable password for this implementation. Lock Windows and choose **Sign-in options → Viso Face**, then scan and blink when prompted.
+
+[Full setup, password updates, removal, and validation status](docs/windows-signin.md).
 
 ### Try it with a webcam
 
@@ -100,7 +121,7 @@ Native UI source lives in `desktop/Viso/`. XAML is embedded into the executable.
 .\scripts\test.ps1
 ```
 
-See [test scenarios](docs/testing.md), [architecture and next milestones](docs/architecture.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
+See [test scenarios](docs/testing.md), [architecture](docs/architecture.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Project layout
 
@@ -108,10 +129,15 @@ See [test scenarios](docs/testing.md), [architecture and next milestones](docs/a
 desktop/Viso/              Native C#/WPF UI, motion, camera catalog, process client
 desktop/bin/               Built Viso.exe (git-ignored)
 backend/viso/native.py     Private desktop worker and DirectShow camera capture
+backend/viso/signin.py     Service-owned one-shot profile/camera worker
 backend/viso/              Recognition, profile storage, simulation, legacy API
 backend/tests/             Validation, storage, HTTP, and real-model tests
 models/manifest.json       Pinned model revisions and SHA-256 hashes
 scripts/                   Setup, launch, model download, and test commands
+signin/Provider/           x64 C++ V2 Credential Provider
+signin/Service/            C# LocalSystem sign-in service and account vault
+signin/Shared/             Named-pipe protocol and Windows account validation
+signin/Tests/              Credential formats, service, and IPC checks
 docs/                      Architecture and test-environment notes
 .viso/profile.dpapi        Local encrypted enrollment (git-ignored)
 .viso/desktop.json         Desktop preferences (git-ignored)

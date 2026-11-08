@@ -108,7 +108,9 @@ namespace Viso
             });
             Click("DeleteProfile", async delegate {
                 if (MessageBox.Show(window, "Delete the face enrollment from this PC?", "Delete enrollment", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
-                await StopCamera(); status = await engine.Send("profile.delete"); Log("Face enrollment deleted."); UpdateStatus(); CaptureIdle();
+                await StopCamera();
+                if (!ephemeral && !smoke && SignInSettings.IsInstalled) Text("SignInStatus", await SignInSettings.Unlink());
+                status = await engine.Send("profile.delete"); Log("Face enrollment deleted."); UpdateStatus(); CaptureIdle();
             });
             Click("ChooseImages", ChooseImages);
             Click("ClearImages", delegate { ClearImages(); return Task.FromResult(0); });
@@ -132,6 +134,17 @@ namespace Viso
             });
             Click("ClearActivity", delegate { events.Clear(); RenderEvents(); return Task.FromResult(0); });
             Click("RefreshCameras", delegate { RefreshCameras(); return Task.FromResult(0); });
+            Find<TextBox>("SignInAccount").Text = Environment.UserName;
+            Click("RefreshSignIn", async delegate { Text("SignInStatus", await SignInSettings.Status()); });
+            Click("LinkSignIn", async delegate {
+                var password = Find<PasswordBox>("SignInPassword");
+                try {
+                    await StopCamera();
+                    string message = await SignInSettings.Link(root, Find<ComboBox>("SignInAccountKind").SelectedIndex == 1 ? "microsoft" : "local", Find<TextBox>("SignInAccount").Text, password.Password, cameraIndex);
+                    Text("SignInStatus", message); Log("Windows face sign-in account link updated.");
+                } finally { password.Clear(); }
+            });
+            Click("UnlinkSignIn", async delegate { Text("SignInStatus", await SignInSettings.Unlink()); Log("Windows face sign-in disabled for this account."); });
             Find<ComboBox>("ImagePicker").SelectionChanged += delegate {
                 int index = Find<ComboBox>("ImagePicker").SelectedIndex;
                 Find<Image>("LabPreview").Source = index >= 0 && index < imagePreviews.Count ? imagePreviews[index] : null;
@@ -258,6 +271,7 @@ namespace Viso
         }
         private async Task Suspend()
         {
+            Find<PasswordBox>("SignInPassword").Clear();
             if (closed || engine == null) return;
             epoch++; operation = ""; cameraOn = false; Ring.Active = false; ClearPreview(); UpdateControls();
             try { await engine.Send("camera.stop"); } catch { }
@@ -277,6 +291,7 @@ namespace Viso
         }
         private void SetPage(string target)
         {
+            if (target != "settings") Find<PasswordBox>("SignInPassword").Clear();
             page = target;
             Show("CapturePage", page == "face" || page == "unlock"); Show("LabPage", page == "lab"); Show("ActivityPage", page == "activity"); Show("SettingsPage", page == "settings");
             string[] headings = page == "face" ? new[] { "YOUR FACE, YOUR KEY", "A little more effortless.", "Five small turns. One familiar face." }
@@ -434,6 +449,12 @@ namespace Viso
             Find<Button>("LabReject").IsEnabled = Ready && !busy && HasProfile && images.Count > 0;
             Find<Button>("LabEnroll").IsEnabled = Ready && !busy && !HasProfile && status.Get("storage_error") == null && images.Count > 0 && Find<TextBox>("LabName").Text.Trim().Length > 0;
             Find<TextBox>("LabName").IsEnabled = !busy && !HasProfile;
+            Find<Button>("LinkSignIn").IsEnabled = !busy && !working && !ephemeral && !smoke && HasProfile && status.Child("profile").Flag("guided") && status.Child("profile").Text("source") == "camera";
+            Find<Button>("UnlinkSignIn").IsEnabled = !busy && !smoke;
+            Find<Button>("RefreshSignIn").IsEnabled = !busy && !smoke;
+            Find<TextBox>("SignInAccount").IsReadOnly = busy;
+            Find<ComboBox>("SignInAccountKind").IsEnabled = !busy;
+            Find<PasswordBox>("SignInPassword").IsEnabled = !busy;
             Find<Button>("ExportActivity").IsEnabled = events.Count > 0 && !busy;
             Find<Button>("ClearActivity").IsEnabled = events.Count > 0 && !busy;
         }
@@ -569,6 +590,7 @@ namespace Viso
         private void SmokeFail(Exception error) { ExitCode = 1; string output = Path.Combine(root, "test-results", "native"); Directory.CreateDirectory(output); File.WriteAllText(Path.Combine(output, "error.txt"), error.ToString()); window.Close(); }
         private void Close()
         {
+            Find<PasswordBox>("SignInPassword").Clear();
             closed = true; epoch++; timer.Stop(); Ring.Active = false; Motion.StopAll();
             SystemParameters.StaticPropertyChanged -= OnSystemSettings; SystemEvents.SessionSwitch -= OnSessionSwitch;
             if (engine != null) { engine.Event -= EngineEvent; engine.Dispose(); }

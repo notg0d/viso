@@ -7,10 +7,11 @@ if (-not (Test-Path $compiler)) { throw 'Viso needs the Windows .NET Framework 4
 $source = Join-Path $root 'desktop\Viso'
 $output = Join-Path $root 'desktop\bin'
 New-Item -ItemType Directory -Path $output -Force | Out-Null
-$references = @('System.dll', 'System.Core.dll', 'System.Xaml.dll', 'System.Web.Extensions.dll', 'WPF\WindowsBase.dll', 'WPF\PresentationCore.dll', 'WPF\PresentationFramework.dll')
+$references = @('System.dll', 'System.Core.dll', 'System.Security.dll', 'System.Xaml.dll', 'System.Web.Extensions.dll', 'WPF\WindowsBase.dll', 'WPF\PresentationCore.dll', 'WPF\PresentationFramework.dll')
 $arguments = @('/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/utf8output', "/out:$output\Viso.exe", "/win32manifest:$source\app.manifest", "/resource:$source\MainWindow.xaml,Viso.MainWindow.xaml")
 foreach ($reference in $references) { $arguments += '/reference:' + (Join-Path $framework $reference) }
 $arguments += (Get-ChildItem $source -Filter '*.cs').FullName
+$arguments += (Get-ChildItem (Join-Path $root 'signin\Shared') -Filter '*.cs').FullName
 & $compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Native Windows build failed.' }
 Copy-Item (Join-Path $source 'Viso.exe.config') $output -Force

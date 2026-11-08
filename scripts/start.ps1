@@ -7,7 +7,7 @@ try {
         throw 'Run .\scripts\setup.ps1 first.'
     }
     $executable = Join-Path $root 'desktop\bin\Viso.exe'
-    $newestSource = Get-ChildItem (Join-Path $root 'desktop\Viso') -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    $newestSource = Get-ChildItem (Join-Path $root 'desktop\Viso'), (Join-Path $root 'signin\Shared') -File | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
     if (-not (Test-Path $executable) -or $newestSource.LastWriteTimeUtc -gt (Get-Item $executable).LastWriteTimeUtc) {
         & (Join-Path $PSScriptRoot 'build-native.ps1')
     }

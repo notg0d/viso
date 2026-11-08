@@ -86,11 +86,48 @@ Real-model tests are marked skipped if the optional image fixtures have not been
 
 ## Development verification
 
-Version 0.6 passes **91 backend tests** plus the native C#/WPF build and smoke check. The native smoke check opens all five pages, captures actual WPF raster output, checks minimum window size and reduced-motion completion, verifies button gating, runs real blank-frame inference, and performs real image enrollment → matching-photo rejection → deletion through the C# process client. The latter also verifies a Unicode profile name. Camera capture is not started by automated visual checks. Physical-webcam enrollment, driver disconnect behavior, and natural blink timing still need a live-camera check.
+The current native/sign-in implementation passes **94 backend tests** (including three one-shot sign-in worker tests) plus the native C#/WPF build and smoke check. The native smoke check opens all five pages, captures actual WPF raster output, checks minimum window size and reduced-motion completion, verifies button gating, runs real blank-frame inference, and performs real image enrollment → matching-photo rejection → deletion through the C# process client. The latter also verifies a Unicode profile name. Camera capture is not started by automated visual checks. Physical-webcam enrollment, driver disconnect behavior, and natural blink timing still need a live-camera check.
 
 Native rendering regressions are recorded in `test-results/native/rendering.json`: 30 pixel checks cover circular preview fill/mirroring with 4:3, 16:9, and portrait inputs, plus visible profile-name text in editable and active-enrollment states. They run at 1040/780 window widths and 100%/150%/200% raster scales. Full-window captures also exercise the shared text-box template and a decoded portrait inside the enrollment ring.
 
-The historical browser verification below documents earlier releases, not the current native UI.
+## Windows sign-in validation
+
+```powershell
+.\scripts\build-signin.ps1 -Test
+.\scripts\test-signin-runtime.ps1
+```
+
+The component tests do not install a provider/service, open a camera, or use real account passwords. Verified coverage:
+
+- C++ `/W4 /WX` provider build and actual DLL COM activation without registry registration.
+- Local and Microsoft-account credential packing/decryption for both logon and unlock, including Unicode synthetic passwords; unsupported scenarios and empty credentials rejected.
+- V2 user/SID association, local/MSA filtering, preserving default provider selection, and withholding serialization without verification.
+- **43 C# service/protocol checks:** bounded framing, malformed UTF-8, account-name rules, DPAPI round trips, record/filename SID binding, current revision checks, pending-link revocation after unlink/relink, real Windows pipe impersonation, and rejecting a lookalike service PID.
+- Acknowledgment relay ordering and pipe-disconnect cancellation even when recognition is silent.
+- **11 deployment checks:** owner/access rules for retained data and executable files, reparse-point rejection, and atomic protected-directory creation with rejection of an existing path.
+- Packaged Python import isolation, model hashes/loading and actual blank-frame inference; **3 real subprocess checks** cover accepted/rejected synthetic profiles and Job Object cleanup through the service's worker class.
+- Native Settings build/smoke coverage, alongside the existing 30 rendering regression checks.
+
+The packaged-runtime checks run as the development user, not LocalSystem. Administrator installation/uninstallation, real `LogonUser` password validation, and the following integrated scenarios remain **unverified**:
+
+| VM scenario | Expected result |
+|---|---|
+| Link the signed-in local account; repeat with a personal Microsoft account | Correct password links only the caller SID; wrong password, another user's password, PIN and incomplete/photo enrollment fail |
+| Lock and submit Viso; repeat after reboot | Service opens the camera from session 0; fresh matched blink/open sequence results in Windows authentication |
+| Cancel, deselect tile, switch users, or disconnect camera during scan | No serialization from the canceled operation; worker exits; another scan can acquire camera |
+| Two Windows users enrolled/linked | Separate records and selected-account matching; one face cannot authorize another account |
+| Disable/relink while verification is in progress | Old revision cannot release a credential; relinking cannot undo a concurrent disable |
+| Change local/MSA password | Old saved credential fails Windows authentication; normal sign-in and relinking restore Viso |
+| Offline cached Microsoft-account sign-in | Behavior matches Windows' cached-password availability |
+| Worker/service stopped, failed, or restarted; sleep/resume | Ordinary Windows options remain usable; a new Viso scan requires fresh verification |
+| Install, uninstall, reboot, reinstall with/without retained links | Only Viso registrations/files change; locked DLL cleanup completes after reboot |
+| Photo/video/virtual camera presentation and varied lighting/glasses | Record false accepts/rejects; existing blink tests do not establish anti-spoofing effectiveness |
+
+See [Windows sign-in setup](windows-signin.md) for commands and account requirements.
+
+## Historical browser verification
+
+The verification below documents earlier releases, not the current native UI.
 
 Version 0.5 passed **81 backend tests, 4 camera-sampler tests, and the TypeScript/production build** with MediaPipe 0.10.32. The 19 added tilt regressions cover bounded head-local eye geometry, invalid rotations, chin-up open-eye calibration, pose-bound relative and absolute blink evidence, either-eye closure, identity/gap resets, exclusion of inferred/cached frames from calibration, and effective API eye-state reporting in both flows. The existing real-model portrait checks still pass. Controlled geometry and injected observations do not establish physical-webcam accuracy; repeat the chin-up open/blink/wink scenarios on the actual camera.
 

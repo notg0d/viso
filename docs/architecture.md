@@ -21,6 +21,32 @@ Python native worker (backend/viso/native.py)
 
 UI preferences are separate from face data, in `.viso/desktop.json`. Session exports contain messages and times only. Face profiles retain the existing compatible `.viso/profile.dpapi` format. The private pipes are a desktop transport, not a privileged pre-login authentication boundary.
 
+### Optional native Windows sign-in
+
+```text
+Viso Settings (current user) ── link/status/unlink ─┐
+                                                │ bounded local named pipe
+LogonUI → VisoCredentialProvider.dll ── verify ───┤ Viso.SignIn.v1
+                                                ▼
+VisoSignInService.exe (LocalSystem, Program Files)
+  ├─ Impersonated caller SID; LogonUI-only credential release
+  ├─ Local/Microsoft account password validation through LogonUser
+  ├─ Per-SID machine-DPAPI records in protected ProgramData
+  ├─ Revision-checked commit/release and serialized vault mutations
+  └─ Fresh Job-contained Python process (-I -B) for every verification
+        ├─ Fixed 0.55 match threshold; current-model camera profile
+        ├─ Service-owned DirectShow capture and fresh blink acknowledgment
+        └─ Acceptance → one-use local/MSA Windows credential serialization
+```
+
+`signin/Provider` implements V2 user-associated tiles for local and personal Microsoft accounts, for logon and workstation unlock. It supplies no default auto-logon and does not filter other providers. Local credentials use `CredProtectW` and a packed `KERB_INTERACTIVE_UNLOCK_LOGON`; Microsoft accounts use `CRED_PACK_PROTECTED_CREDENTIALS | CRED_PACK_ID_PROVIDER_CREDENTIALS`. Windows' Negotiate authentication package makes the final authentication decision.
+
+The SCM service PID authenticates the pipe server; pipe impersonation identifies clients. Only a SYSTEM `System32\LogonUI.exe` caller in an interactive session may request credentials. Account linking validates the password and requires the resulting SID to match the caller. The service accepts no supplied frames or success claims. Prompt acknowledgment comes from LogonUI, and the worker discards pre-prompt samples through the existing native pipeline.
+
+Unlink/relink invalidates older record revisions and pending account-link commits, including an unlink before the first record is saved. Vault mutation and final credential release are serialized. An already released credential is valid once for at most ten seconds; deselection/disconnect/serialization clears it. Pipe closure cancels silent inference, and service shutdown/worker deadlines close the kill-on-close Job Object. Account data goes only to the appropriate Windows serialization path; the Python process never receives passwords.
+
+Machine-scope DPAPI supports pre-login decryption. Administrator/SYSTEM-only file ACLs provide the necessary storage isolation, and the installer verifies ownership, access grants, and reparse points before retaining existing records. Installed code and the private Python runtime live under protected Program Files. Managed password strings are short-lived but cannot be guaranteed zeroed. See [setup and limitations](windows-signin.md) for deployment details and verification status.
+
 ### Native motion
 
 One restrained motion language: cubic ease-out, 90–180 ms input feedback, 150 ms measured head tracking, 300 ms captured sectors, 320 ms page entrances, and a 420 ms completion ring. Only active enrollment/scanning attaches the ring's render callback. Disabling animations stops active timelines and resolves ring properties to their target values. Windows `ClientAreaAnimation` and the in-app reduced-motion preference both apply. Motion presents backend state; it never supplies pose, eye, identity, or completion evidence.
@@ -62,7 +88,7 @@ The enrollment ring and light sweeps are a React/CSS adaptation of Glance's MIT-
 - Attempts expire after 20 seconds. A new attempt cancels the old one. Deleting a profile revokes attempts.
 - Image tests expose identity scores but always stay locked; setting a permissive threshold does not bypass the blink challenge.
 
-These thresholds are initial test settings, not a validated authentication operating point. Integration-test portraits demonstrate behavior, not a population-wide false-accept/false-reject rate. A blink challenge rejects an unchanged still photo in functional tests, but does not establish video-replay or generated-video resistance. Camera frames arrive through the sandbox HTTP API, which cannot attest a physical camera.
+These thresholds are initial test settings, not a validated authentication operating point. Integration-test portraits demonstrate behavior, not a population-wide false-accept/false-reject rate. A blink challenge rejects an unchanged still photo in functional tests, but does not establish video-replay or generated-video resistance. The sandbox HTTP API accepts client frames; the Windows sign-in worker captures its own camera frames, but does not attest physical-camera hardware or exclude virtual camera drivers.
 
 ### Small-motion recovery
 
@@ -129,18 +155,10 @@ Persistent sandbox templates use `CryptProtectData` with current-user scope. DPA
 
 Mutating requests require the `X-Viso-Token` from `/api/status`. Image values are JPEG/PNG data URLs. Eye states, pose values, and blink claims supplied by a client are ignored: the backend measures them. Responses expose measurements and simulated state, not an operating-system authentication capability. The UI requires `liveness: "blink-and-open-eyes"` and `camera_pipeline: "buffered-v1"` before enabling tests.
 
-## Windows milestones
+## Remaining Windows milestones
 
-1. **Native desktop recognition sandbox (current):** real enrollment/matching, WPF enrollment/settings, explicit simulated unlock, repeatable image tests, Windows data-at-rest storage.
-2. **Liveness evaluation:** labeled live/photo/screen/video samples; evaluate an anti-spoofing model and randomized motion challenges against measured error rates.
-3. **Native recognition host:** C++ service using the same ONNX models and a camera source independent of a logged-in browser. Retain preprocessing/score parity tests.
-4. **Credential Provider prototype in a Windows VM:** add a custom sign-in tile for a dedicated local test account. The provider submits a valid Windows credential after the native service's decision. This still requires credential storage/release design.
-5. **Distribution:** installer/service lifecycle, recovery and update handling, then additional account types. The native WPF enrollment UI is already implemented.
+1. **Integrated VM validation:** real local/MSA linking, LogonUI enumeration, session-0 camera access, lock/unlock, cold boot, multi-user behavior, and install/update/removal. Component tests currently run without registration.
+2. **Liveness evaluation:** labeled live/photo/screen/video samples and measured error rates; evaluate stronger presentation-attack detection and randomized challenges.
+3. **Distribution hardening:** signed binaries, installer/update lifecycle exercised on supported Windows versions, and driver compatibility results.
 
-The sandbox HTTP API and current-user DPAPI store are not the pre-login service interface. Pre-login key availability, service identity, authenticated IPC, per-attempt freshness, cancellation, multi-user isolation, and camera ownership must be designed for the native service.
-
-### Native sign-in test environment
-
-Use a disposable Windows 11 VM with a dedicated local account and a snapshot before Credential Provider installation. First test provider enumeration and ordinary password submission, then connect recognition. Camera passthrough depends on the hypervisor; deterministic image fixtures can test the recognition host before passthrough is configured. Windows Sandbox is suitable for disposable UI trials but a rebootable VM is the better fit for logon-provider work.
-
-No Credential Provider, Windows service, registry registration, or VM has been installed by milestone 1.
+Use a rebootable Windows VM with a snapshot and camera passthrough for integrated testing. Windows Sandbox can exercise the desktop UI but is not a substitute for reboot/logon-provider tests. [Validation coverage](testing.md#windows-sign-in-validation) identifies what has and has not run.
