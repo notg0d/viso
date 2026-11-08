@@ -13,12 +13,33 @@
 #include <commctrl.h>
 #include <deque>
 #include <memory>
+#include <cstdio>
 
 static std::atomic<long> objects{0};
 static HRESULT Copy(const std::wstring& value, PWSTR* result) { return SHStrDupW(value.c_str(), result); }
+static void Trace(PCWSTR stage, HRESULT result = S_OK, DWORD state = 0)
+{
+    // Opt-in lifecycle diagnostics only: never account names, frames or secrets.
+    static const bool enabled = [] {
+        DWORD value = 0, size = sizeof(value);
+        return RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Viso", L"SignInDiagnostics", RRF_RT_REG_DWORD, nullptr, &value, &size) == ERROR_SUCCESS && value == 1;
+    }();
+    if (!enabled) return;
+    wchar_t text[256];
+    swprintf_s(text, L"Provider: %s; result=0x%08lX; state=%lu", stage, static_cast<unsigned long>(result), state);
+    HANDLE source = RegisterEventSourceW(nullptr, L"VisoSignIn");
+    if (source) {
+        PCWSTR lines[] = {text};
+        ReportEventW(source, EVENTLOG_INFORMATION_TYPE, 0, 100, nullptr, 1, 0, lines, nullptr);
+        DeregisterEventSource(source);
+    }
+}
 
 class Credential final : public ICredentialProviderCredential2, public IConnectableCredentialProviderCredential
 {
+#ifdef VISO_PROVIDER_TESTS
+    friend struct CredentialTestAccess;
+#endif
     std::atomic<ULONG> refs{1};
     std::atomic<ULONGLONG> generation{0};
     std::mutex gate;
@@ -42,10 +63,14 @@ class Credential final : public ICredentialProviderCredential2, public IConnecta
     std::deque<std::shared_ptr<Update>> updates;
     static constexpr UINT ScanMessage = WM_APP + 17;
     ULONGLONG acceptedAt = 0;
-    void Clear()
+    void Clear(bool retainFreshCredential = false)
     {
         std::lock_guard<std::mutex> lock(gate);
-        ++generation; Erase(password); acceptedAt = 0; scanning = false;
+        ++generation;
+        if (!retainFreshCredential || password.empty() || !acceptedAt || GetTickCount64() - acceptedAt > 10000) {
+            Erase(password); acceptedAt = 0;
+        }
+        scanning = false;
         for (auto& update : updates) SetEvent(update->done);
         updates.clear();
     }
@@ -68,7 +93,9 @@ class Credential final : public ICredentialProviderCredential2, public IConnecta
                     if (query && query->QueryContinue() != S_OK) return HRESULT_FROM_WIN32(ERROR_CANCELLED);
                     std::lock_guard<std::mutex> lock(gate);
                     if (generation.load() != ticket) return HRESULT_FROM_WIN32(ERROR_CANCELLED);
-                    password = response[3]; acceptedAt = GetTickCount64(); scanning = false; return S_OK;
+                    password = response[3]; acceptedAt = GetTickCount64(); scanning = false;
+                    detail = L"Face verified. Signing in...";
+                    Trace(L"verification accepted"); return S_OK;
                 }
                 if (response[0] == L"error" && response.size() == 2) {
                     std::lock_guard<std::mutex> lock(gate);
@@ -114,7 +141,11 @@ class Credential final : public ICredentialProviderCredential2, public IConnecta
             }
             if (generation.load() == update->ticket) {
                 if (update->accepted) {
-                    if (providerEvents && HasCredential()) update->result = providerEvents->CredentialsChanged(context);
+                    if (providerEvents && HasCredential()) {
+                        Trace(L"request automatic sign-in");
+                        update->result = providerEvents->CredentialsChanged(context);
+                        Trace(L"automatic sign-in requested", update->result);
+                    }
                 } else if (events) update->result = events->SetFieldString(static_cast<ICredentialProviderCredential2*>(this), 2, update->text.c_str());
             }
             SetEvent(update->done);
@@ -186,7 +217,7 @@ public:
         if (providerEvents) providerEvents->Release();
         providerEvents = value; context = valueContext;
         if (providerEvents) { providerEvents->AddRef(); StartSelected(); }
-        else Clear();
+        else { Trace(L"provider events detached"); Clear(); }
     }
     void Detach() { SetDeselected(); UnAdvise(); SetProviderEvents(nullptr, 0); }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** value) override
@@ -200,15 +231,25 @@ public:
     ULONG STDMETHODCALLTYPE AddRef() override { return ++refs; }
     ULONG STDMETHODCALLTYPE Release() override { ULONG count = --refs; if (!count) delete this; return count; }
     HRESULT STDMETHODCALLTYPE Advise(ICredentialProviderCredentialEvents* value) override { if (events) events->Release(); events = value; if (events) events->AddRef(); StartSelected(); return S_OK; }
-    HRESULT STDMETHODCALLTYPE UnAdvise() override { Clear(); CloseScanWindow(); if (events) events->Release(); events = nullptr; return S_OK; }
+    HRESULT STDMETHODCALLTYPE UnAdvise() override
+    {
+        Trace(L"credential UnAdvise");
+        // CredentialsChanged refreshes the tile through UnAdvise/Advise before
+        // automatic serialization. Cancel work/callbacks, but keep an already
+        // verified one-use result within its original 10-second deadline.
+        // SetDeselected, Disconnect and provider teardown still purge it.
+        Clear(true); CloseScanWindow();
+        if (events) events->Release(); events = nullptr; return S_OK;
+    }
     HRESULT STDMETHODCALLTYPE SetSelected(BOOL* automatic) override
     {
         if (!automatic) return E_POINTER;
         selected = true; *automatic = HasCredential() ? TRUE : FALSE;
+        Trace(L"SetSelected", S_OK, *automatic);
         if (!*automatic) StartSelected();
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE SetDeselected() override { selected = attempted = false; Clear(); return S_OK; }
+    HRESULT STDMETHODCALLTYPE SetDeselected() override { Trace(L"SetDeselected"); selected = attempted = false; Clear(); return S_OK; }
     HRESULT STDMETHODCALLTYPE GetUserSid(PWSTR* result) override { return Copy(sid, result); }
     HRESULT STDMETHODCALLTYPE GetFieldState(DWORD id, CREDENTIAL_PROVIDER_FIELD_STATE* state, CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE* interactive) override
     {
@@ -251,6 +292,7 @@ public:
     HRESULT STDMETHODCALLTYPE Connect(IQueryContinueWithStatus* query) override
     {
         if (!query) return E_INVALIDARG;
+        Trace(L"Connect", S_OK, HasCredential());
         if (HasCredential()) return S_OK;
         { std::lock_guard<std::mutex> lock(gate); if (scanning) return S_OK; }
         attempted = true;
@@ -259,17 +301,19 @@ public:
         { std::lock_guard<std::mutex> lock(gate); if (generation.load() == ticket) scanning = false; }
         return FAILED(hr) ? hr : S_OK;
     }
-    HRESULT STDMETHODCALLTYPE Disconnect() override { Clear(); return S_OK; }
+    HRESULT STDMETHODCALLTYPE Disconnect() override { Trace(L"Disconnect"); Clear(); return S_OK; }
     HRESULT STDMETHODCALLTYPE GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* response, CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* serialized, PWSTR* text, CREDENTIAL_PROVIDER_STATUS_ICON* icon) override
     {
         if (!response || !serialized || !text || !icon) return E_POINTER;
         std::lock_guard<std::mutex> lock(gate);
+        Trace(L"GetSerialization", S_OK, (password.empty() ? 0 : 1) | (scanning ? 2 : 0));
         *response = CPGSR_NO_CREDENTIAL_NOT_FINISHED; *serialized = {}; *text = nullptr; *icon = CPSI_NONE;
         if (scanning) return S_OK;
         if (password.empty() || !acceptedAt || GetTickCount64() - acceptedAt > 10000) { Erase(password); acceptedAt = 0; ++generation; *icon = CPSI_ERROR; return Copy(detail, text); }
         HRESULT hr;
         try { hr = PackCredential(kind == L"local", qualified, password, scenario, serialized); }
         catch (...) { hr = E_OUTOFMEMORY; }
+        Trace(L"credential packed", hr);
         Erase(password); acceptedAt = 0; ++generation;
         if (SUCCEEDED(hr)) *response = CPGSR_RETURN_CREDENTIAL_FINISHED;
         else { *icon = CPSI_ERROR; Copy(L"Windows could not prepare the credential. Use another sign-in option.", text); }
@@ -277,6 +321,7 @@ public:
     }
     HRESULT STDMETHODCALLTYPE ReportResult(NTSTATUS status, NTSTATUS, PWSTR* text, CREDENTIAL_PROVIDER_STATUS_ICON* icon) override
     {
+        Trace(L"ReportResult", status);
         Clear(); if (!text || !icon) return E_POINTER; *text = nullptr; *icon = CPSI_NONE;
         if (status < 0) { *icon = CPSI_ERROR; return Copy(L"Windows rejected the saved credential. Sign in with your password or PIN, then relink this account in Viso Settings.", text); }
         return S_OK;
@@ -343,7 +388,7 @@ public:
         if (!count || !defaultIndex || !automatic) return E_POINTER;
         *count = static_cast<DWORD>(credentials.size()); *defaultIndex = CREDENTIAL_PROVIDER_NO_DEFAULT; *automatic = FALSE;
         for (DWORD i = 0; i < *count; ++i) {
-            if (credentials[i]->HasCredential()) { *defaultIndex = i; *automatic = TRUE; return S_OK; }
+            if (credentials[i]->HasCredential()) { *defaultIndex = i; *automatic = TRUE; Trace(L"GetCredentialCount automatic"); return S_OK; }
             if (*defaultIndex == CREDENTIAL_PROVIDER_NO_DEFAULT && credentials[i]->Linked()) *defaultIndex = i;
         }
         return S_OK;
@@ -355,6 +400,7 @@ public:
     }
     HRESULT STDMETHODCALLTYPE SetUserArray(ICredentialProviderUserArray* users) override
     {
+        Trace(L"SetUserArray");
         Clear(); if (!users || scenario == CPUS_INVALID) return E_INVALIDARG;
         DWORD count = 0; HRESULT hr = users->GetCount(&count); if (FAILED(hr)) return hr;
         wchar_t computer[MAX_COMPUTERNAME_LENGTH + 1]; DWORD length = ARRAYSIZE(computer); if (!GetComputerNameW(computer, &length)) return E_FAIL;

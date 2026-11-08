@@ -76,12 +76,18 @@ For an upgrade that retains account links:
 .\scripts\build-signin.ps1
 # Administrator PowerShell:
 .\scripts\uninstall-signin.ps1 -KeepAccountLinks
-# Restart Windows; rerun uninstall with -KeepAccountLinks if files remained locked.
-# After restarting, in administrator PowerShell:
+# If files or the deleted service remain open, restart Windows and rerun
+# uninstall with -KeepAccountLinks. Otherwise continue in this session.
 .\scripts\install-signin.ps1
 ```
 
 Retained records work only on the same Windows installation. A changed profile format/model may require relinking.
+
+Launching or rebuilding the desktop app alone does not update `%ProgramFiles%\Viso`. The lock screen runs the separately installed service, provider DLL, and private backend. Apply the sign-in update as well to receive automatic scanning, model prewarming, and the 0.7.1 camera-start fix.
+
+### Provider diagnostics
+
+For callback/automatic-submit troubleshooting, administrator PowerShell can set DWORD `HKLM:\SOFTWARE\Viso\SignInDiagnostics` to `1`. The next LogonUI instance records provider lifecycle stages, result codes, and state flags in the Application event log under source `VisoSignIn`, event ID `100`. It records no account names, passwords, face images, or embeddings. Set the value back to `0` after diagnosing the issue. The setting is read once per provider process.
 
 ## Stored data and trust boundary
 

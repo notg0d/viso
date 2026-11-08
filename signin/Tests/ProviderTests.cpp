@@ -1,5 +1,6 @@
 #define SECURITY_WIN32
 #define _SEC_WINNT_AUTH_TYPES
+#define VISO_PROVIDER_TESTS
 #include "../Provider/Provider.cpp"
 #include <ntsecapi.h>
 #include <sspi.h>
@@ -7,6 +8,17 @@
 #include <iostream>
 #include <cassert>
 #include <algorithm>
+
+struct CredentialTestAccess
+{
+    static void Accept(Credential* credential, const std::wstring& fakePassword, ULONGLONG age = 0)
+    {
+        std::lock_guard<std::mutex> lock(credential->gate);
+        credential->password = fakePassword;
+        credential->acceptedAt = GetTickCount64() - age;
+        credential->scanning = false;
+    }
+};
 
 class User final : public ICredentialProviderUser
 {
@@ -151,6 +163,37 @@ int wmain()
             assert(response == CPGSR_NO_CREDENTIAL_NOT_FINISHED && invalid.rgbSerialization == nullptr);
             CoTaskMemFree(text);
         }
+        if (i == 0) {
+            auto handoff = dynamic_cast<Credential*>(credential); assert(handoff);
+            auto refreshEvents = new ScanEvents();
+            credential->Advise(refreshEvents);
+            credential->SetSelected(&automatic); assert(!automatic);
+            CredentialTestAccess::Accept(handoff, secret);
+            // The observed LogonUI automatic-submit sequence refreshes the
+            // credential event sink before asking for the default/serialization.
+            credential->UnAdvise(); assert(handoff->HasCredential());
+            provider->GetCredentialCount(&count, &defaultIndex, &automatic);
+            assert(automatic && defaultIndex == 0);
+            credential->Advise(refreshEvents);
+            credential->SetSelected(&automatic); assert(automatic);
+            CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE response; PWSTR text = nullptr; CREDENTIAL_PROVIDER_STATUS_ICON icon;
+            assert(SUCCEEDED(credential->GetSerialization(&response, &invalid, &text, &icon)));
+            assert(response == CPGSR_RETURN_CREDENTIAL_FINISHED && invalid.rgbSerialization && !handoff->HasCredential());
+            Free(invalid); CoTaskMemFree(text); text = nullptr;
+            assert(SUCCEEDED(credential->GetSerialization(&response, &invalid, &text, &icon)));
+            assert(response == CPGSR_NO_CREDENTIAL_NOT_FINISHED && !invalid.rgbSerialization);
+            CoTaskMemFree(text);
+            // UI refresh cannot renew the deadline or override cancellation.
+            CredentialTestAccess::Accept(handoff, secret, 10001);
+            credential->UnAdvise(); assert(!handoff->HasCredential());
+            CredentialTestAccess::Accept(handoff, secret);
+            credential->UnAdvise(); credential->SetDeselected(); assert(!handoff->HasCredential());
+            CredentialTestAccess::Accept(handoff, secret);
+            credential->UnAdvise(); handoff->Disconnect(); assert(!handoff->HasCredential());
+            CredentialTestAccess::Accept(handoff, secret);
+            credential->UnAdvise(); handoff->SetProviderEvents(nullptr, 0); assert(!handoff->HasCredential());
+            refreshEvents->Release();
+        }
         credential->Release();
     }
     provider->Release(); assert(DllCanUnloadNow() == S_OK);
@@ -207,5 +250,5 @@ int wmain()
     }
     assert(canUnload() == S_OK); actualEvents->Release();
     FreeLibrary(module); FreeLibrary(sspi);
-    CoUninitialize(); std::cout << "Provider checks passed: DLL activation, protected local/MSA packing, account filtering, automatic scanning with UI-thread callbacks, bounded retry, cancellation, unload, and no credentials before verification.\n";
+    CoUninitialize(); std::cout << "Provider checks passed: DLL activation, protected local/MSA packing, account filtering, automatic scanning with UI-thread callbacks, automatic-submit refresh, one-use expiry, bounded retry, cancellation, unload, and no credentials before verification.\n";
 }

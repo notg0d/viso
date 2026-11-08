@@ -1,8 +1,12 @@
 # Testing Viso
 
-## 0.7 responsiveness update
+## 0.7.1 camera startup and automatic-submit update
 
-The production source matches `main`; validation files and the earlier browser bench remain on `test`. The updated local run passed 99 Python checks, provider checks against the actual DLL (including automatic selection and UI-thread callbacks), 47 service checks, 11 deployment checks, 6 packaged-worker checks, and native smoke/render checks. See [measured timings and remaining installed-build validation](performance.md).
+The production source matches `main`; validation files and the earlier browser bench remain on `test`. The updated local run passed 99 Python checks, provider checks against the actual DLL (including automatic selection and UI-thread callbacks), 47 service checks, 11 deployment checks, 6 installed-runtime checks, and native smoke/render checks. See [measured timings and installed-build validation](performance.md).
+
+The 0.7.1 provider regression reproduces Windows' `UnAdvise`/`Advise` refresh between successful verification and automatic submission. It checks that a fresh result survives the refresh, serializes once, expires on its original deadline, and is cleared by deselection, disconnect, or provider teardown. Its injected credential is synthetic and the access helper is compiled only into the tests.
+
+Six physical-camera opens exercised the shared desktop/sign-in capture paths and release/queue cleanup. Camera startup improved from one measured 4.489 s baseline to medians of 1.043 s (desktop) and 1.048 s (sign-in), with the same 960×540 raw frames. After installing the updates while retaining the account link, the user confirmed fast automatic scanning and successful Windows unlock without pressing the arrow. The provider trace recorded successful serialization and `ReportResult 0x00000000`; temporary tracing was then disabled.
 
 New regressions cover raw camera input, no JPEG work for sign-in, distinct enrollment frames, broader pose regions, asynchronous desktop initialization, model-only one-shot prewarm, canceled queued provider callbacks, and disconnect/deadline handling while startup writes are blocked.
 
@@ -56,7 +60,7 @@ Real-model tests are marked skipped if the optional image fixtures have not been
 | Scenario | Expected behavior |
 |---|---|
 | Start with a fresh profile | Unlock button disabled until enrollment and an input are ready |
-| Enroll via webcam | Follow the directional light; ring sectors fill after ~0.35 s holds, return to center between turns |
+| Enroll via webcam | Follow the directional light; ring sectors fill after three distinct observations across at least 0.24 s, return to center between turns |
 | Lift chin during enrollment/unlocking | Eyes remain readable with small turns and gaze toward camera; bounded calibration may show Tilt adjusted |
 | Tilt upward without blinking | Prompt remains; head movement alone cannot satisfy a blink |
 | Blink / wink / close both eyes while chin is raised | Bilateral blink can progress; wink/closed final eyes cannot unlock or supply enrollment samples |
@@ -92,7 +96,7 @@ Real-model tests are marked skipped if the optional image fixtures have not been
 
 ## Development verification
 
-The current native/sign-in implementation passes **94 backend tests** (including three one-shot sign-in worker tests) plus the native C#/WPF build and smoke check. The native smoke check opens all five pages, captures actual WPF raster output, checks minimum window size and reduced-motion completion, verifies button gating, runs real blank-frame inference, and performs real image enrollment → matching-photo rejection → deletion through the C# process client. The latter also verifies a Unicode profile name. Camera capture is not started by automated visual checks. Physical-webcam enrollment, driver disconnect behavior, and natural blink timing still need a live-camera check.
+The current native/sign-in implementation passes **99 backend tests** (including three one-shot sign-in worker tests) plus the native C#/WPF build and smoke check. The native smoke check opens all five pages, captures actual WPF raster output, checks minimum window size and reduced-motion completion, verifies button gating, runs real blank-frame inference, and performs real image enrollment → matching-photo rejection → deletion through the C# process client. The latter also verifies a Unicode profile name. Camera capture is not started by automated visual checks. The separate physical-camera startup measurements and successful local-account automatic unlock are recorded above; other cameras, lighting/glasses, and driver disconnect behavior need further live checks.
 
 Native rendering regressions are recorded in `test-results/native/rendering.json`: 30 pixel checks cover circular preview fill/mirroring with 4:3, 16:9, and portrait inputs, plus visible profile-name text in editable and active-enrollment states. They run at 1040/780 window widths and 100%/150%/200% raster scales. Full-window captures also exercise the shared text-box template and a decoded portrait inside the enrollment ring.
 
@@ -108,13 +112,14 @@ The component tests do not install a provider/service, open a camera, or use rea
 - C++ `/W4 /WX` provider build and actual DLL COM activation without registry registration.
 - Local and Microsoft-account credential packing/decryption for both logon and unlock, including Unicode synthetic passwords; unsupported scenarios and empty credentials rejected.
 - V2 user/SID association, local/MSA filtering, preserving default provider selection, and withholding serialization without verification.
-- **43 C# service/protocol checks:** bounded framing, malformed UTF-8, account-name rules, DPAPI round trips, record/filename SID binding, current revision checks, pending-link revocation after unlink/relink, real Windows pipe impersonation, and rejecting a lookalike service PID.
+- Automatic-submit UI refresh retains a fresh verified result; serialization stays one-use, expiry is not renewed, and cancellation/teardown revoke it.
+- **47 C# service/protocol checks:** bounded framing, malformed UTF-8, account-name rules, DPAPI round trips, record/filename SID binding, current revision checks, pending-link revocation after unlink/relink, real Windows pipe impersonation, and rejecting a lookalike service PID.
 - Acknowledgment relay ordering and pipe-disconnect cancellation even when recognition is silent.
 - **11 deployment checks:** owner/access rules for retained data and executable files, reparse-point rejection, and atomic protected-directory creation with rejection of an existing path.
-- Packaged Python import isolation, model hashes/loading and actual blank-frame inference; **3 real subprocess checks** cover accepted/rejected synthetic profiles and Job Object cleanup through the service's worker class.
+- Packaged Python import isolation, model hashes/loading and actual blank-frame inference; **6 real subprocess checks** cover accepted/rejected synthetic profiles, model-only prewarm, one-shot completion, and Job Object cleanup through the service's worker class.
 - Native Settings build/smoke coverage, alongside the existing 30 rendering regression checks.
 
-The packaged-runtime checks run as the development user, not LocalSystem. Administrator installation/uninstallation, real `LogonUser` password validation, and the following integrated scenarios remain **unverified**:
+The packaged-runtime checks run as the development user, not LocalSystem. Administrator upgrade with a retained account link, automatic LocalSystem service/standby startup, and an actual local-account automatic lock-screen unlock were verified on the development machine. The broader matrix below still requires validation, including reboot, Microsoft accounts, multi-user races, failure cases, and presentation attacks:
 
 | VM scenario | Expected result |
 |---|---|

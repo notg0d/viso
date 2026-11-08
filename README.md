@@ -10,8 +10,10 @@ Viso is a **native C#/WPF desktop application** for face enrollment, unlock test
 
 **Unlock test** is a simulator. The optional native **Windows sign-in prototype** supports local accounts and personal Microsoft accounts through a Credential Provider and LocalSystem service. See [Windows sign-in setup](docs/windows-signin.md), including how to update an installed version.
 
-### New in 0.7
+### New in 0.7.1
 
+- Camera startup negotiates its resolution in one DirectShow open, avoiding two driver restarts. On the development webcam, the first frame improved from 4.49 s to about 1.05 s at the same captured resolution.
+- Automatic sign-in retains its fresh, one-use result while Windows refreshes the tile before submission.
 - Selecting **Viso Face** starts a scan automatically. After a failed scan, the arrow retries; switching sign-in options cancels it.
 - Linked accounts advertise Viso as an available default. Windows still chooses according to its remembered sign-in provider and policy; sign in with Viso once to establish that preference.
 - The sign-in service keeps one model-loaded worker ready, with its camera closed. Each scan gets fresh verification state and destroys its worker afterward.
