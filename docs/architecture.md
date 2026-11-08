@@ -24,7 +24,7 @@ Python sandbox service (one serialized inference/state owner)
 
 OpenCV's CPU DNN backend executes the ONNX models. Python provides a quick, inspectable test harness on the available Windows toolchain; the model files and recognition math are portable to a later native implementation. The React UI is suitable for a future desktop shell.
 
-This is a fresh Viso implementation inspired by Glance's experience. Glance's Swift source and model weights are not bundled.
+The enrollment ring and light sweeps are a React/CSS adaptation of Glance's MIT-licensed onboarding animation. Source revision and attribution are in `THIRD_PARTY_NOTICES.md`.
 
 ## Recognition behavior
 
@@ -45,18 +45,23 @@ A fully measured score up to 0.06 below the selected threshold (and at least 0.3
 
 A narrow eye-measurement jitter case may also pause initial matching, blink prompting, or final confirmation under the same deadline and face-box bound: identity must fully pass, both EAR values must be at least 0.18, and the largest blink coefficient must be just above 0.30 and no higher than 0.34. This remains an **uncertain** measurement, never open-eye or blink evidence. Weak identity and uncertain eyes cannot be combined for recovery. A low EAR, stronger closure, or unknown tracking does not qualify.
 
-A recovery frame during final confirmation clears the confirmation timer while retaining the already measured blink. A recovered match must begin a new strict open-eye confirmation interval of at least 120 ms. Closing either eye or losing eye tracking still resets the challenge. The last frame of a batch must pass the full match threshold and open-eye checks; cached or borderline scores cannot authorize an unlock. Image-source tests never use motion recovery.
+A recovery frame during final confirmation clears the confirmation timer while retaining the already measured blink. A recovered match must begin a new open-eye confirmation interval of at least 120 ms. Closing either eye or losing eye tracking still resets the challenge. The last frame of a batch must pass the full match threshold and open-eye checks; cached or borderline scores cannot authorize an unlock. Image-source tests never use motion recovery.
 
 ### Eye state and pose
 
 `attention.py` runs the version-1 float16 MediaPipe Face Landmarker in stateless IMAGE mode, with up to two faces to detect ambiguity. Its landmarks must associate with the same YuNet face. There is no cross-person tracking/smoothing state. The two eye-blink coefficients and eye aspect ratios (EAR) must agree:
 
-- Open: both blink coefficients ≤0.30 and both EAR ≥0.18.
+- Strict open: both blink coefficients ≤0.30, both corrected EAR ≥0.18, and both screen EAR ≥0.14.
 - Closed: both blink coefficients ≥0.60 and both EAR ≤0.21.
-- During an attempt, at least three confirmed-open identity frames establish median eye baselines. A brief closure can also count when **both** blink coefficients rise by ≥0.20 to ≥0.35 and **both** EAR values fall to ≤72% of baseline and ≤0.21. This accommodates a sampled blink peak below the old 0.60 cutoff. It never relaxes the open-eye gate. The baseline is discarded on lost/changed identity, unknown tracking, or a reset challenge.
+- At least three strictly measured open-eye identity frames establish median eye references (at most 12 retained). A brief closure can also count when **both** blink coefficients rise by ≥0.20 to ≥0.35 and **both** corrected EAR values fall to ≤72% of baseline and ≤0.21. Relative closure compares only reference poses within 10° on every axis. Absolute and relative closure evidence must also be within 10° of the last open frame's pose; a large head turn cannot substitute for the blink. Gradual open-eye turns update that pose anchor without training on inferred eye states.
+- Chin-up open classification may use at least three strict-open references: pitch must be −35° to −8°, yaw within ±25°, roll within ±20°; references must be within 12° yaw/roll and 22° pitch. Each coefficient must stay ≤min(0.45, reference+0.15), each corrected EAR ≥max(0.18, 90% of reference), and each raw EAR ≥0.14. This bounded path operates in both enrollment and unlocking, including final confirmation. It cannot override a closed/unknown classification. Inferred-open frames never train it, and references never cross sessions or identities.
 - Other intermediate/disagreeing measurements, including a wink, remain uncertain. Missing/invalid landmarks and excessive pose are unknown.
 
 Model predictions can be wrong; glasses, occlusion, lighting, and different eyelid geometry require real-camera evaluation. The final open-eye check is mandatory and never inferred from identity similarity.
+
+XYZ eye landmarks use image-width scaling for MediaPipe Z. The validated head rotation transforms camera coordinates into the head-local eye plane. Corrected EAR is the larger of screen and local EAR, capped at 125% of screen EAR; this preserves frontal behavior while bounding depth-model errors. Tiny/offscreen/nonfinite landmarks and invalid rotation matrices are rejected. The pose limits remain ±35° yaw/pitch and ±25° roll. Responses include `left_raw_ear`, `right_raw_ear`, and `eye_method` (`measured`, `pose-calibrated`, or `relative-blink`) and are serialized after the session applies calibration.
+
+Unlock references train only on fully matched strict-open frames in the initial or blink-prompt phases; cached identity frames cannot train them. Lost identity, unknown eyes, expired/stale tracking, or challenge resets discard them. Enrollment checks the earlier captured/held samples and a temporary identity anchor before applying eye calibration, and discards references on missing/changed identity, unknown eyes, gaps over a second, or expiry. No eye reference is persisted in the profile.
 
 ### Capture timing
 
@@ -68,7 +73,7 @@ The backend stops a batch when it first issues a blink prompt. A challenge count
 
 The backend chooses center → subject's left → subject's right → up → down, requiring a brief return to neutral between directional captures. Positive yaw is the subject's left, positive pitch is chin down; the browser mirrors only the preview. The neutral hold's median pose establishes a pitch/yaw baseline. Turns target 16° ±6° yaw; up/down target 12° ±5° pitch relative to neutral, with limits on other axes. Three observations spanning at least 350 ms, with pose drift ≤5°, are required for a capture. Each pose stores the normalized average embedding of its stable hold instead of only the last frame. Identity consistency is checked against both previous poses and frames in the current hold at ≥0.50 cosine similarity.
 
-The target diagram shows a median-of-three measured pose relative to neutral. Validation uses the actual individual poses, not smoothed display values. Feedback distinguishes chin movement, left/right correction, recentering, and unwanted sideways tilt. Wrong poses/faces or closed eyes reset the current hold. A 90-second timeout or cancellation discards unfinished samples. Only the explicit finish endpoint writes the profile once all five poses are complete.
+The 80-tick ring shows a median-of-three measured pose relative to neutral with a six-tick-wide live turn band. Four directional sectors light only after the server captures the matching angle; center pulses the whole ring. Layered, pointer-transparent light ribbons travel toward the requested direction after a 360 ms delay. A pose change, recenter, cancellation, or completion removes the previous sweep. Ticks merge into a solid ring on completion, shown for 1.1 seconds after saving. Reduced-motion settings keep static guidance and disable animation. Validation uses actual individual poses, not smoothed display values or animation progress. Feedback distinguishes chin movement, left/right correction, recentering, and unwanted sideways tilt. Wrong poses/faces or closed eyes reset the current hold. A 90-second timeout or cancellation discards unfinished samples. Only the explicit finish endpoint writes the profile once all five poses are complete.
 
 The SFace model ID and 128-dimensional embedding format are unchanged, so old persistent profiles still use their original centroid score. Re-enrollment is required to retain individual views, which previous versions discarded. New guided profiles also record pose labels/angles in encrypted metadata. The public profile exposes `matching: "multi-view"` or `"centroid"`.
 

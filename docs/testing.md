@@ -28,6 +28,9 @@ Coverage includes:
 - Neutral-hold calibration, relative target feedback, and mandatory recentering between directional samples.
 - Multi-view consensus, rejection of single-view outliers, legacy-profile compatibility, encrypted view storage, and vector-free status responses.
 - Brief borderline-match/near-open measurement recovery, fixed recovery deadlines, motion-following cache bounds, and fresh final confirmation after movement.
+- Upward-tilt XYZ geometry, width-scaled depth on non-square images, bounded correction, and invalid/closed-eye geometry rejection.
+- Pose-local blink references, calibrated chin-up reopening, rejection of tilt-only blink evidence and either-eye closure, and identity-local reference resets.
+- Inferred-open frames cannot train/drift calibration; API responses reflect the effective session eye state.
 - New scans invalidate old scans; profile deletion revokes active scans.
 - DPAPI persistence, encrypted bytes, corrupted-profile handling, and deletion.
 - Loopback API token, origin/host validation, malformed/oversized requests, and static-path traversal.
@@ -45,7 +48,12 @@ Real-model tests are marked skipped if the optional image fixtures have not been
 | Scenario | Expected behavior |
 |---|---|
 | Start with a fresh profile | Unlock button disabled until enrollment and an input are ready |
-| Enroll via webcam | Move the dot into each target; hold ~0.35 s, return to center between turns |
+| Enroll via webcam | Follow the directional light; ring sectors fill after ~0.35 s holds, return to center between turns |
+| Lift chin during enrollment/unlocking | Eyes remain readable with small turns and gaze toward camera; bounded calibration may show Tilt adjusted |
+| Tilt upward without blinking | Prompt remains; head movement alone cannot satisfy a blink |
+| Blink / wink / close both eyes while chin is raised | Bilateral blink can progress; wink/closed final eyes cannot unlock or supply enrollment samples |
+| Finish guided enrollment | Ticks merge into a solid ring before the overlay clears; profile saved once |
+| Reduced-motion preference | Static ring, progress, and text guidance; no moving light sweeps |
 | Stay facing forward at the left/right prompt | The next pose is not captured |
 | Close either eye / show a different person during enrollment | Current hold resets; sample is not captured |
 | Cancel enrollment / Escape / hide tab mid-enrollment | Incomplete samples discarded; no profile saved |
@@ -75,6 +83,10 @@ Real-model tests are marked skipped if the optional image fixtures have not been
 | Restart service with an open UI | Refresh/reconnect before continuing mutations |
 
 ## Development verification
+
+Version 0.5 passed **81 backend tests, 4 camera-sampler tests, and the TypeScript/production build** with MediaPipe 0.10.32. The 19 added tilt regressions cover bounded head-local eye geometry, invalid rotations, chin-up open-eye calibration, pose-bound relative and absolute blink evidence, either-eye closure, identity/gap resets, exclusion of inferred/cached frames from calibration, and effective API eye-state reporting in both flows. The existing real-model portrait checks still pass. Controlled geometry and injected observations do not establish physical-webcam accuracy; repeat the chin-up open/blink/wink scenarios on the actual camera.
+
+The v0.5 production-browser check used a synthetic canvas stream and mocked enrollment responses. DOM and animation checks verified 80 ticks, four equal 20-tick sectors, all four sweep/turn-band directions, recentering, capture progress, cancellation, a single save, and completion cleanup after about 1.1 seconds. Escape also cleared the completion timer. Constrained 360/430/800/1280-pixel layouts stayed within the viewport; the small-screen ring was adjusted to give the instruction text more room. Forcing the reduced-motion stylesheet branch disabled ring/ribbon animation while keeping progress visible. Pixel screenshots were unavailable because the desktop screenshot tool could not capture the visible window, so visual appearance still needs a manual check. Reloading removed the mocks, released the synthetic stream, and restored native camera APIs; the reloaded page reported no console errors.
 
 Version 0.4 passed **62 backend tests, 4 camera-sampler tests, and the TypeScript/production build** with the pinned MediaPipe 0.10.32 package. Real-model fixtures verify same-person similarity, different-person rejection, open-eye measurements, mirrored pose, and repeated-photo blocking. Injected observations test the complete blink and five-pose state machines deterministically, including a 50 ms sampled eye closure delivered in a batch; they do not establish real-camera accuracy.
 

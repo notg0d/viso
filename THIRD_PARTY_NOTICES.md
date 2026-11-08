@@ -22,4 +22,34 @@ MediaPipe Face Landmarker uses the versioned `face_landmarker/float16/1/face_lan
 - NumPy — BSD-3-Clause.
 - MediaPipe — Apache-2.0; pinned Python package 0.10.32. Its transitive dependency notices are included in the installed packages. Later prebuilt SDK releases add usage telemetry ([upstream discussion](https://github.com/google-ai-edge/mediapipe/issues/6291)); reassess this before upgrading the pin.
 
-Glance inspired the product idea. No Glance code, branding assets, or InsightFace model weights are included in this implementation.
+## Glance enrollment animation
+
+`src/EnrollmentGuide.tsx` and the enrollment animation in `src/styles.css` adapt the ring, turn-band, and layered directional-sweep behavior from [jonnyoo/glance](https://github.com/jonnyoo/glance), revision `b97f521397ec1197ba17768ba797cae1e628848d`:
+
+- `glance/Onboarding/EnrollmentRingView.swift`
+- `glance/Onboarding/EnrollmentDirectionSweep.swift`
+- `glance/Onboarding/EnrollmentSweepWindowController.swift`
+
+Viso adapts the animation to its five-pose server-driven enrollment and camera panel. Glance branding assets and model weights are not bundled.
+
+MIT License
+
+Copyright (c) 2026 Jonathan Zhou
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

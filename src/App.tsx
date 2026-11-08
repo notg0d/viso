@@ -8,7 +8,8 @@ import {
 import { api } from './api'
 import { CameraSampler, capture, loadImage } from './media'
 import type { Attempt, Enrollment, LabImage, LogEntry, Observation, Source, Status } from './types'
-import { EnrollmentGuide, EyeReadout, UnlockCard } from './Guidance'
+import { EyeReadout, UnlockCard } from './Guidance'
+import { EnrollmentGuide } from './EnrollmentGuide'
 
 type Page = 'bench' | 'identity' | 'activity'
 type TestState = 'locked' | 'scanning' | 'unlocked' | 'rejected' | 'expired' | 'blocked'
@@ -45,6 +46,7 @@ function App() {
   const enrollmentGeneration = useRef(0)
   const enrollmentController = useRef<AbortController | null>(null)
   const savingEnrollment = useRef(false)
+  const completionTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const log = useCallback((message: string, kind: LogEntry['kind'] = 'info') => {
     const entry = { id: ++nextLogId.current, time: new Date().toISOString(), message, kind }
@@ -87,6 +89,8 @@ function App() {
 
   const cancelEnrollment = useCallback(() => {
     if (savingEnrollment.current) return
+    if (completionTimer.current) clearTimeout(completionTimer.current)
+    completionTimer.current = null
     enrollmentGeneration.current += 1
     enrollmentController.current?.abort()
     enrollmentController.current = null
@@ -94,7 +98,7 @@ function App() {
     enrollmentId.current = null
     if (id) void api.cancelEnrollment(id).catch(() => {})
     setEnrollment(null)
-    setBusy((current) => current === 'enroll' ? null : current)
+    setBusy((current) => current === 'enroll' || current === 'complete' ? null : current)
   }, [])
 
   const stopCamera = useCallback(() => {
@@ -120,6 +124,7 @@ function App() {
       scanController.current?.abort()
       enrollmentGeneration.current += 1
       enrollmentController.current?.abort()
+      if (completionTimer.current) clearTimeout(completionTimer.current)
       if (enrollmentId.current) void api.cancelEnrollment(enrollmentId.current).catch(() => {})
       stream.current?.getTracks().forEach((track) => track.stop())
     }
@@ -217,6 +222,7 @@ function App() {
     setError(null)
     setObservation(null)
     cancelScan()
+    let completed = false
     try {
       let next: Status
       if (source === 'camera') {
@@ -243,13 +249,20 @@ function App() {
         next = await api.enroll(name, images.map((image) => image.data), source)
       }
       setStatus(next)
+      completed = source === 'camera'
       setObservation(null)
       log(`Enrolled ${next.profile!.name} with ${next.profile!.samples} ${source === 'camera' ? 'guided angles' : 'image samples'}.`, 'success')
     } catch (cause) {
       if (generation === enrollmentGeneration.current) fail(cause)
     } finally {
       savingEnrollment.current = false
-      if (generation === enrollmentGeneration.current) { cancelEnrollment(); setBusy(null) }
+      if (generation === enrollmentGeneration.current) {
+        if (completed) {
+          // Leave the completed ring visible after saving, with cancellable cleanup.
+          setBusy('complete')
+          completionTimer.current = setTimeout(() => { cancelEnrollment(); setBusy(null) }, 1100)
+        } else { cancelEnrollment(); setBusy(null) }
+      }
     }
   }
 
@@ -347,7 +360,7 @@ function App() {
           <button disabled={!!busy} className={`nav-item ${page === 'activity' ? 'active' : ''}`} onClick={() => navigate('activity')}><Activity size={18} />Session activity{logs.length > 0 && <span className="nav-count">{logs.length}</span>}</button>
         </nav>
         <div className="sidebar-note"><span className="tiny-tag">MILESTONE 01</span><h3>Meet your camera.</h3><p>Real face recognition.<br />A simulated unlock.</p><div className="milestone-track"><span /><span /><span /></div><p className="muted-small">Next up: Windows sign-in</p></div>
-        <div className="sidebar-bottom"><div className="device-icon"><Monitor size={18} /></div><div><strong>Windows sandbox</strong><span>Local development · v{status?.version || '0.4.0'}</span></div></div>
+        <div className="sidebar-bottom"><div className="device-icon"><Monitor size={18} /></div><div><strong>Windows sandbox</strong><span>Local development · v{status?.version || '0.5.0'}</span></div></div>
       </aside>
 
       <main>
@@ -367,7 +380,7 @@ function App() {
                 <div className={`camera-stage ${mediaReady ? 'has-media' : ''}`}>
                   <div className={`media-surface ${source === 'camera' ? 'mirrored' : ''}`} style={{ aspectRatio: aspect, maxWidth: `${aspect * 350}px`, display: mediaReady || cameraState === 'starting' ? undefined : 'none' }}>
                     {source === 'camera' ? <video ref={video} autoPlay muted playsInline aria-label="Live camera preview" /> : image && <img src={image.data} alt="Selected test input" />}
-                    {observation?.box && <div className={`face-box ${observation.usable ? 'usable' : ''}`} style={{ left: `${observation.box[0] * 100}%`, top: `${observation.box[1] * 100}%`, width: `${observation.box[2] * 100}%`, height: `${observation.box[3] * 100}%` }}><span /><span /><span /><span /></div>}
+                    {!enrollment && observation?.box && <div className={`face-box ${observation.usable ? 'usable' : ''}`} style={{ left: `${observation.box[0] * 100}%`, top: `${observation.box[1] * 100}%`, width: `${observation.box[2] * 100}%`, height: `${observation.box[3] * 100}%` }}><span /><span /><span /><span /></div>}
                   </div>
                   {!mediaReady && <div className="camera-placeholder"><div className="viewfinder"><ScanFace size={58} strokeWidth={1} /><i /><i /><i /><i /></div><h3>{source === 'camera' ? 'A little face time?' : 'Start with a familiar face.'}</h3><p>{source === 'camera' ? 'Turn on your camera to get acquainted.' : 'Choose up to five photos of the same person.'}</p><button className="button stage-button" disabled={working || cameraState === 'starting'} onClick={() => source === 'camera' ? void startCamera() : fileInput.current?.click()}>{cameraState === 'starting' ? <LoaderCircle size={16} className="spin" /> : source === 'camera' ? <Camera size={16} /> : <Upload size={16} />}{cameraState === 'starting' ? 'Opening camera…' : source === 'camera' ? 'Enable camera' : 'Choose images'}</button></div>}
                   {mediaReady && <>
@@ -375,7 +388,7 @@ function App() {
                     {enrollment ? <EnrollmentGuide enrollment={enrollment} /> : <div className={`stage-caption ${scanning ? 'scanning' : ''}`}><ScanFace size={15} />{scanning ? attempt?.message || 'Looking for your face…' : busy === 'enroll' ? 'Building your face profile…' : observation?.message || (source === 'camera' ? 'Center your face in the frame' : image?.name)}</div>}
                   </>}
                 </div>
-                {enrollment && <div className="enrollment-feedback" aria-live="polite"><span>{enrollment.message}</span><button className="text-button" disabled={busy === 'saving'} onClick={() => { cancelEnrollment(); log('Guided enrollment canceled.') }}>Cancel enrollment</button></div>}
+                {enrollment && <div className="enrollment-feedback" aria-live="polite"><span>{enrollment.message}</span>{enrollment.state !== 'ready' && <button className="text-button" disabled={busy === 'saving'} onClick={() => { cancelEnrollment(); log('Guided enrollment canceled.') }}>Cancel enrollment</button>}</div>}
                 {observation && <EyeReadout observation={observation} />}
                 <input ref={fileInput} type="file" accept="image/jpeg,image/png" multiple className="sr-only" aria-label="Choose test images" onChange={(event) => void chooseImages(event.target.files)} />
                 {source === 'image' && images.length > 0 && <div className="image-strip">{images.map((item, index) => <button className={selectedImage === index ? 'selected' : ''} key={`${item.name}-${index}`} disabled={working} aria-label={`Select image ${index + 1}: ${item.name}`} onClick={() => { cancelScan(); setSelectedImage(index); setObservation(null) }}><img src={item.data} alt="" /><span>{index + 1}</span></button>)}<button className="add-image" aria-label="Choose different images" disabled={working} onClick={() => fileInput.current?.click()}><Plus size={18} /></button><span>{images.length} / 5 samples</span></div>}
@@ -384,7 +397,7 @@ function App() {
                   {profile ? <div className="enrolled-summary"><span className="avatar"><UserRound size={22} /></span><div><strong>{profile.name}<span className="small-check"><Check size={11} /></span></strong><span>{profile.samples} samples · {profile.guided ? 'Guided camera enrollment' : profile.source === 'camera' ? 'Camera enrollment' : 'Image lab enrollment'}</span></div><button className="button secondary compact" disabled={working} onClick={() => navigate('identity')}>Manage<ArrowRight size={14} /></button></div> : <>
                     <label htmlFor="profile-name">MAKE IT PERSONAL</label>
                     <div className="enroll-controls"><input id="profile-name" maxLength={40} value={name} disabled={working} onChange={(event) => setName(event.target.value)} placeholder="Your profile name" /><button className="button primary" disabled={!ready || working || !name.trim() || !!status?.storage_error} onClick={() => void enroll()}>{busy === 'enroll' || busy === 'saving' ? <LoaderCircle size={16} className="spin" /> : <Plus size={16} />}{busy === 'saving' ? 'Saving…' : busy === 'enroll' ? 'Enrolling…' : 'Enroll face'}</button></div>
-                    <p>{source === 'camera' ? 'Move the dot into each target: center, left, right, up, down. Use small turns and return to center when prompted.' : 'Enroll a reference photo with both eyes open. Use the camera for blink verification.'}</p>
+                    <p>{source === 'camera' ? 'Follow the light: center, left, right, up, down. The ring follows your head. Keep your eyes on the camera and return to center when prompted.' : 'Enroll a reference photo with both eyes open. Use the camera for blink verification.'}</p>
                   </>}
                 </div>
               </section>

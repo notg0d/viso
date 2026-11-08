@@ -6,13 +6,14 @@ from time import monotonic
 import numpy as np
 
 from .recognition import Observation, normalized, similarity
+from .attention import EyeCalibration, apply_eye_state
 
 STEPS = (
     ("center", "Look straight at the camera", "Keep your head upright and both eyes open."),
-    ("left", "Turn slightly to your left", "Follow the left arrow. Keep both eyes visible."),
-    ("right", "Turn slightly to your right", "Follow the right arrow. Keep both eyes visible."),
-    ("up", "Lift your chin slightly", "Look a little upward, keeping your eyes open."),
-    ("down", "Lower your chin slightly", "Look a little downward, keeping your eyes open."),
+    ("left", "Turn slightly to your left", "Follow the light to the left. Keep both eyes visible."),
+    ("right", "Turn slightly to your right", "Follow the light to the right. Keep both eyes visible."),
+    ("up", "Lift your chin slightly", "Follow the light upward. Keep your eyes on the camera."),
+    ("down", "Lower your chin slightly", "Follow the light downward. Keep your eyes on the camera."),
 )
 
 TARGETS = {"center": (0, 0, 7, 18), "left": (16, 0, 6, 9), "right": (-16, 0, 6, 9),
@@ -47,6 +48,8 @@ class Enrollment:
     returning: bool = False
     measured_pose: tuple | None = None
     pose_history: list = field(default_factory=list)
+    calibration: EyeCalibration = field(default_factory=EyeCalibration)
+    eye_identity: np.ndarray | None = None
 
     def reset_hold(self):
         self.hold_at = self.held_pose = None
@@ -62,6 +65,8 @@ class Enrollment:
             self.poses.clear()
             self.baseline = self.measured_pose = None
             self.pose_history.clear()
+            self.calibration = EyeCalibration()
+            self.eye_identity = None
             self.reset_hold()
         return self.state == "expired"
 
@@ -71,10 +76,26 @@ class Enrollment:
             return self.public()
         if self.last_frame_at is not None and (now <= self.last_frame_at or now - self.last_frame_at > 1):
             self.reset_hold()
+            self.calibration = EyeCalibration()
+            self.eye_identity = None
+            self.pose_history.clear()
         if self.last_frame_at is not None and now - self.last_frame_at < .06:
             return self.public()
         self.last_frame_at = now
         attention = observation.attention
+        same_person = (observation.embedding is not None and observation.face_count == 1
+                       and all(similarity(observation.embedding, other) >= .50
+                               for other in self.embeddings + [item[0] for item in self.hold_samples])
+                       and (self.eye_identity is None or similarity(observation.embedding, self.eye_identity) >= .50))
+        if not same_person or attention is None or attention.eyes == "unknown":
+            self.calibration = EyeCalibration()
+            self.eye_identity = None
+            self.pose_history.clear()
+        elif attention is not None:
+            state = self.calibration.classify(attention, calibrating=True)
+            apply_eye_state(attention, state)
+            if self.eye_identity is None and state == "open":
+                self.eye_identity = observation.embedding.copy()
         self.measured_pose = None
         if attention is not None and all(value is not None for value in (attention.yaw, attention.pitch, attention.roll)):
             raw_pose = (attention.yaw, attention.pitch, attention.roll)
@@ -86,12 +107,12 @@ class Enrollment:
         if observation.embedding is None or observation.face_count != 1:
             self.reset_hold()
             self.message = observation.message
-        elif attention is None or attention.eyes != "open" or any(value is None for value in (attention.yaw, attention.pitch, attention.roll)):
-            self.reset_hold()
-            self.message = "Keep both eyes open and clearly visible."
-        elif any(similarity(observation.embedding, other) < .50 for other in self.embeddings + [item[0] for item in self.hold_samples]):
+        elif not same_person:
             self.reset_hold()
             self.message = "This face does not match the earlier samples. Return to the same person."
+        elif attention is None or attention.eyes != "open" or any(value is None for value in (attention.yaw, attention.pitch, attention.roll)):
+            self.reset_hold()
+            self.message = "Keep your eyes on the camera as you lift your chin." if attention and attention.pitch is not None and attention.pitch < -8 else "Keep both eyes open and clearly visible."
         else:
             yaw, pitch, roll = attention.yaw, attention.pitch, attention.roll
             if self.baseline:
@@ -103,7 +124,7 @@ class Enrollment:
                 if abs(roll) > 12:
                     self.message = "Keep your head upright; turn instead of tilting sideways."
                 elif self.returning:
-                    self.message = "Face the camera again. Bring the dot into the center target."
+                    self.message = "Face the camera again. Center your head inside the ring."
                 else:
                     target_yaw, target_pitch, tolerance_yaw, tolerance_pitch = TARGETS[step]
                     if abs(pitch - target_pitch) > tolerance_pitch:

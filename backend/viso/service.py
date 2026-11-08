@@ -30,7 +30,7 @@ class SandboxService:
 
     def status(self) -> dict:
         return {
-            "version": "0.4.0",
+            "version": "0.5.0",
             "mode": "sandbox",
             "token": self.token,
             "engine": {"ready": self.engine is not None, "id": MODEL_ID, "message": self.engine_error},
@@ -174,7 +174,8 @@ class SandboxService:
                     raise ApiError(enrollment.message, 409)
                 if parts[3] == "frame":
                     observation = self.observe(data)
-                    return {"observation": observation.public(), "enrollment": enrollment.observe(observation)}
+                    result = enrollment.observe(observation)
+                    return {"observation": observation.public(), "enrollment": result}
                 if parts[3] == "finish":
                     if enrollment.state != "ready" or len(enrollment.embeddings) != 5:
                         raise ApiError("Complete all five guided angles first.", 409)
@@ -209,7 +210,8 @@ class SandboxService:
                     raise ApiError("The enrolled profile changed. Start a new test.", 409)
                 observation = self.observe(data)
                 score = self.score(observation)
-                return {"observation": observation.public(score), "attempt": attempt.observe(score, attention=observation.attention, box=observation.box)}
+                result = attempt.observe(score, attention=observation.attention, box=observation.box)
+                return {"observation": observation.public(score), "attempt": result}
             if method == "POST" and len(parts) == 4 and parts[3] == "frames":
                 if not self.store.profile or self.store.profile["id"] != attempt.profile_id:
                     raise ApiError("The enrolled profile changed. Start a new test.", 409)

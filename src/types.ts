@@ -39,6 +39,9 @@ export interface Observation {
     right_blink: number | null
     left_ear: number | null
     right_ear: number | null
+    left_raw_ear: number | null
+    right_raw_ear: number | null
+    eye_method: 'measured' | 'pose-calibrated' | 'relative-blink'
     yaw: number | null
     pitch: number | null
     roll: number | null

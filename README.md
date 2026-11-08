@@ -18,6 +18,8 @@ This build runs real face detection and recognition against a **simulated lock s
 - Buffered camera sampling for short blinks, lightweight face detection, and a fast eye-tracking path while waiting for a blink.
 - Neutral-calibrated enrollment targets, smaller turns, and averaged samples from each stable hold.
 - Multi-angle identity matching and bounded motion recovery to reduce restarts during small head movements.
+- Pose-corrected eye geometry and identity-local open-eye references for upward head tilt.
+- Glance-style segmented enrollment ring, live head-turn feedback, and soft directional light sweeps.
 - Adjustable cosine-similarity threshold and measured inference latency.
 - One enrolled identity, encrypted with current-user Windows DPAPI by default.
 - Ephemeral mode for a completely memory-only enrollment session.
@@ -52,7 +54,7 @@ The model download is about 43 MB. Dependencies/models need the internet during 
 ### Try it with a webcam
 
 1. Select **Live camera** and click **Enable camera**. Allow the browser's camera request.
-2. Enter a profile name and click **Enroll face**. Move the white dot into the green target: center, your left, your right, chin up, chin down. The preview is mirrored, so the arrows point in your direction of movement.
+2. Enter a profile name and click **Enroll face**. Follow the light: center, your left, your right, chin up, chin down. The segmented ring follows your head, and each captured direction turns green. The preview is mirrored, so the light travels in your direction of movement.
 3. Hold each requested angle briefly with both eyes open. Viso averages the stable frames and captures automatically. Return to center between turns when prompted. **Cancel enrollment** or **Escape** discards the unfinished sequence.
 4. Click **Test face unlock**. Look at the camera, **blink both eyes when prompted**, then reopen them. The simulator unlocks only after it confirms your eyes are open again.
 5. Click **Lock again** to repeat. Every new attempt needs a new blink. **Stop test** or **Escape** cancels a running scan.
@@ -60,6 +62,8 @@ The model download is about 43 MB. Dependencies/models need the internet during 
 Use small head movements, even lighting, and a camera near eye level. Enrollment expires after 90 seconds; unlock attempts expire after 20 seconds. Blink normally after the prompt, then reopen both eyes. A sampled brief closure is sufficient; holding the eyes closed for over 0.8 seconds resets the challenge. Camera frames are sampled independently of network replies to reduce missed blinks.
 
 Small movements can briefly show **Following your movement…** while Viso refreshes a borderline match. That frame cannot unlock; a fresh passing match and open eyes are required. New enrollments retain each angle for multi-view matching. Re-enroll profiles created before v0.4 to enable this; existing profiles still support the improved tracking and recovery.
+
+For the upward angle, lift your chin slightly while keeping your eyes on the camera. Version 0.5 compensates bounded eye foreshortening and learns temporary references from strictly measured open eyes. The readout shows **Tilt adjusted** when those references resolve a chin-up measurement. Begin facing the camera with both eyes open; references are rebuilt for each enrollment or unlock attempt. A large tilt by itself does not count as the prompted blink.
 
 The camera stops when you leave the test-bench page, switch input modes, or hide the browser tab. Restart it with **Enable camera**.
 

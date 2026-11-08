@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from math import isfinite
 from time import monotonic
 
-from .attention import Attention, EyeCalibration, open_measurement_jitter
+from .attention import Attention, EyeCalibration, apply_eye_state, open_measurement_jitter
 
 MOTION_GRACE = .2
 MATCH_MARGIN = .06
@@ -48,6 +48,7 @@ class Attempt:
     last_identity_score: float | None = None
     last_tracking_box: list | None = None
     recovering: bool = False
+    last_open_pose: tuple | None = None
 
     def reset(self, message: str):
         self.streak = 0
@@ -58,6 +59,7 @@ class Attempt:
         self.last_identity_at = self.last_identity_box = self.last_identity_score = None
         self.last_tracking_box = None
         self.recovering = False
+        self.last_open_pose = None
 
     def can_track_open_eyes(self, attention: Attention, box: list, now: float) -> bool:
         # A light eye-check lane only while waiting for a blink. All evidence
@@ -118,6 +120,9 @@ class Attempt:
         # while both eye geometries remain open. Preserve progress briefly, but
         # require a fresh strict-open interval before confirmation can finish.
         # Never combine a weak identity score with uncertain eye measurements.
+        if attention is not None:
+            eyes = self.calibration.classify(attention, calibrating=identity_checked and self.phase in ("identity", "blink"))
+            apply_eye_state(attention, eyes)
         if (self.source == "camera" and identity_checked and continuous and attention is not None
                 and self.phase in ("identity", "blink", "confirm") and open_measurement_jitter(attention)):
             self.recovering = True
@@ -125,8 +130,6 @@ class Attempt:
                 self.reopened_at = None
             self.message = "Keep both eyes clearly open while tracking settles…"
             return self.public()
-        if attention is not None:
-            eyes = self.calibration.classify(attention, calibrating=self.phase == "identity")
         if self.source != "camera":
             self.reset("Identity matched. A still image cannot complete the live blink challenge.")
             self.state = "blocked"
@@ -138,6 +141,8 @@ class Attempt:
             self.last_identity_at, self.last_identity_box, self.last_identity_score = now, box, score
         if eyes == "open":
             self.last_tracking_box = box
+            pose = (attention.yaw, attention.pitch, attention.roll) if attention else None
+            self.last_open_pose = pose if pose and all(value is not None and isfinite(value) for value in pose) else None
 
         if self.phase == "identity":
             if eyes != "open":
@@ -154,8 +159,17 @@ class Attempt:
             # The client drops pre-prompt buffered frames. A single sampled
             # bilateral closure is enough; there is no long eye-hold requirement.
             if eyes == "closed" and now > self.prompted_at:
-                self.phase, self.closed_at = "reopen", now
-                self.message = "Blink detected. Reopen both eyes."
+                pose = (attention.yaw, attention.pitch, attention.roll) if attention else None
+                # Even an absolute closed prediction must not turn a large head
+                # tilt into blink evidence. Open frames may follow gradual turns.
+                moved = self.last_open_pose is not None and (pose is None
+                    or any(value is None or not isfinite(value) for value in pose)
+                    or max(abs(a - b) for a, b in zip(pose, self.last_open_pose)) > 10)
+                if moved:
+                    self.message = "Hold your head steady, open both eyes, then blink."
+                else:
+                    self.phase, self.closed_at = "reopen", now
+                    self.message = "Blink detected. Reopen both eyes."
             else:
                 self.message = "Blink both eyes now, then reopen them."
         elif self.phase == "reopen":

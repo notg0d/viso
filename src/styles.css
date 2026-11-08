@@ -114,26 +114,44 @@ h1 { font-size: clamp(30px, 3vw, 42px); font-weight: 480; letter-spacing: -1.7px
 .stage-badge { position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 6px; background: #18271fc9; border: 1px solid #61755266; color: #d2e0c3; padding: 5px 7px; border-radius: 4px; font-size: 7px; letter-spacing: 1px; }
 .stage-caption { position: absolute; bottom: 13px; left: 50%; transform: translateX(-50%); display: flex; gap: 7px; align-items: center; background: #132119d9; color: #d0dfc1; border: 1px solid #78976755; padding: 8px 11px; border-radius: 6px; font-size: 10px; max-width: 92%; width: max-content; text-align: center; }
 .stage-caption.scanning { border-color: #a6d78d99; }
-.enrollment-guide { position: absolute; inset: 48px 15px 14px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; color: #f1f8e9; text-align: center; pointer-events: none; text-shadow: 0 1px 5px #102017; }
-.guide-steps { display: flex; gap: 22px; margin-bottom: auto; padding: 8px 14px 21px; background: #132119d9; border-radius: 9px; }
-.guide-steps > span { display: grid; place-items: center; position: relative; width: 19px; height: 19px; border: 1px solid #859a74; border-radius: 50%; font-size: 9px; }
+.enrollment-guide { position: absolute; inset: 0; color: #f1f8e9; text-align: center; pointer-events: none; text-shadow: 0 1px 5px #102017; background: linear-gradient(transparent 62%, #102017bd); }
+.guide-steps { position: absolute; top: 12px; right: 12px; display: flex; gap: 5px; padding: 4px 6px; background: #132119d9; border-radius: 20px; }
+.guide-steps > span { display: grid; place-items: center; width: 16px; height: 16px; border: 1px solid #859a74; border-radius: 50%; font-size: 8px; }
 .guide-steps > span.complete { background: #719958; border-color: #accd8d; }
-.guide-steps > span.current { border-color: #d7f6b3; box-shadow: 0 0 0 3px #c1dd9544; }
-.guide-steps small { position: absolute; top: 23px; font-size: 8px; text-transform: capitalize; }
-.direction-cue { display: grid; place-items: center; width: 56px; height: 56px; margin: 10px 0; background: #183424d9; border: 1px solid #b4d899; border-radius: 50%; }
-.pose-target { position: relative; width: 132px; height: 86px; margin: 8px 0 4px; background: #10231cec; border: 1px solid #9ebc8299; border-radius: 9px; overflow: hidden; }
-.pose-cross { position: absolute; background: #bdd3a52b; }
-.pose-cross.horizontal { width: 100%; height: 1px; top: 50%; left: 0; }
-.pose-cross.vertical { height: 100%; width: 1px; left: 50%; top: 0; }
-.pose-zone { position: absolute; transform: translate(-50%, -50%); border: 1px solid #b2d894; border-radius: 6px; background: #82b75a45; transition: all .15s ease; }
-.pose-dot { position: absolute; width: 9px; height: 9px; transform: translate(-50%, -50%); background: white; border: 1px solid #122a1b; border-radius: 50%; box-shadow: 0 0 5px #fff9; transition: left .08s linear, top .08s linear; }
-.pose-dot.aligned { background: #b2f387; }
-.pose-direction { position: absolute; right: 4px; top: 3px; opacity: .7; }
-.pose-target-label { font-size: 9px; padding: 3px 6px; border-radius: 4px; background: #142a1fe8; }
-.enrollment-guide h3 { font-size: 16px; font-weight: 550; padding: 7px 12px; background: #142a1fe8; border-radius: 6px; }
-.enrollment-guide p { font-size: 10px; margin-top: 5px; padding: 5px 8px; background: #142a1fe8; border-radius: 5px; }
-.pose-hold { width: 155px; height: 5px; border-radius: 5px; background: #102017b3; overflow: hidden; margin-top: 9px; }
+.guide-steps > span.current { border-color: #e2ffbd; }
+.enrollment-ring { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); width: min(230px, 76%); height: auto; max-height: 60%; overflow: visible; fill: none; filter: drop-shadow(0 1px 3px #102017aa); }
+.ring-guide { stroke: #f4ffe61f; stroke-width: 1; }
+.ring-tick { stroke: #ffffff70; stroke-width: 2.3; stroke-linecap: round; transition: y2 .15s ease-out, stroke .15s ease-out; }
+.ring-tick.target { stroke: #edffcecc; }
+.ring-tick.tracking { stroke: color-mix(in srgb, #b7f488 calc(var(--turn) * 100%), white); }
+.ring-tick.captured { stroke: #b7f488; }
+.centering .ring-tick { animation: ring-center 1.8s ease-in-out infinite; }
+.center-captured .ring-tick { animation: ring-captured .44s ease-out; }
+.ring-hold { stroke: #b7f488; stroke-width: 1.6; stroke-linecap: round; transition: stroke-dasharray .12s linear; }
+.ring-completion { stroke: #b7f488; stroke-width: 3; opacity: 0; transform-origin: center; transform: scale(.92); transition: opacity .45s, transform .45s; }
+.complete .ring-completion { opacity: 1; transform: scale(1); }
+.complete .ring-tick { opacity: 0; transition: opacity .45s var(--tick-delay); }
+.complete .ring-guide, .complete .ring-hold { opacity: 0; }
+.ring-check { stroke: #d6ffb7; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; animation: ring-captured .45s ease-out; }
+.guide-copy { position: absolute; bottom: 14px; left: 10px; right: 10px; display: flex; flex-direction: column; align-items: center; }
+.guide-copy h3 { font-size: 16px; font-weight: 550; padding: 5px 10px; background: #142a1fe8; border-radius: 6px; }
+.guide-copy p { font-size: 10px; margin-top: 4px; padding: 4px 7px; background: #142a1fe8; border-radius: 5px; }
+.pose-hold { width: 155px; height: 3px; border-radius: 5px; background: #102017b3; overflow: hidden; margin-top: 8px; }
 .pose-hold > span { display: block; height: 100%; background: #bde38e; transition: width .1s linear; }
+/* Glance-style layered ribbons; rotation is on the parent, travel on the child. */
+.direction-sweep { position: absolute; inset: 0; overflow: hidden; opacity: .42; pointer-events: none; }
+.sweep-left { transform: rotate(180deg); }
+.sweep-up { transform: rotate(-90deg); }
+.sweep-down { transform: rotate(90deg); }
+.sweep-ribbon { position: absolute; top: var(--lane); left: -70%; width: var(--length); height: var(--thickness); opacity: 0; animation: direction-sweep var(--duration) cubic-bezier(.68, 0, .32, 1) var(--delay) both; }
+.sweep-ribbon i { position: absolute; inset: 0; border-radius: 100%; background: linear-gradient(90deg, transparent, #91cd6766 18%, #d8ffae 55%, #e9ffcddd 82%, transparent); filter: blur(var(--blur)); }
+.sweep-ribbon i:nth-child(1) { inset: -80% -10%; opacity: .4; }
+.sweep-ribbon i:nth-child(2) { opacity: .6; }
+.sweep-ribbon i:nth-child(3) { inset: 40% 14%; filter: blur(3px); opacity: .55; }
+.sweep-ribbon.vivid i { background: linear-gradient(90deg, transparent, #b2f28277 18%, #e4ffc6 55%, #fff 82%, transparent); }
+@keyframes direction-sweep { 0% { left: -70%; opacity: 0; transform: translateY(0); } 7% { opacity: .7; } 50% { transform: translateY(var(--bow)); } 70% { opacity: .7; } 100% { left: 115%; opacity: 0; transform: translateY(0); } }
+@keyframes ring-center { 50% { stroke: #d8ffaf; stroke-width: 3; } }
+@keyframes ring-captured { 50% { stroke: #e5ffc5; stroke-width: 4; } }
 .enrollment-feedback { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px 4px; font-size: 11px; color: #617655; }
 .enrollment-feedback button { font-size: 11px; color: #8d654d; }
 .eye-readout { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 12px 20px 0; font-size: 10px; color: #778871; }
@@ -332,6 +350,7 @@ h1 { font-size: clamp(30px, 3vw, 42px); font-weight: 480; letter-spacing: -1.7px
   .enroll-controls { flex-wrap: wrap; }
   .enroll-controls .button { width: 100%; }
   .camera-stage { min-height: 290px; }
+  .enrollment-ring { top: 40%; max-height: 56%; }
   .enrolled-summary { flex-wrap: wrap; }
   .enrolled-summary > button { margin-left: 50px; }
   .event time { font-size: 7px; }
