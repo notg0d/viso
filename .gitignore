@@ -15,3 +15,4 @@ tests/.fixtures/
 test-results/
 playwright-report/
 .env
+desktop/bin/

@@ -24,13 +24,13 @@ MediaPipe Face Landmarker uses the versioned `face_landmarker/float16/1/face_lan
 
 ## Glance enrollment animation
 
-`src/EnrollmentGuide.tsx` and the enrollment animation in `src/styles.css` adapt the ring, turn-band, and layered directional-sweep behavior from [jonnyoo/glance](https://github.com/jonnyoo/glance), revision `b97f521397ec1197ba17768ba797cae1e628848d`:
+`desktop/Viso/EnrollmentRing.cs` and the earlier `src/EnrollmentGuide.tsx` / `src/styles.css` adapt the ring, turn-band, and directional-light behavior from [jonnyoo/glance](https://github.com/jonnyoo/glance), revision `b97f521397ec1197ba17768ba797cae1e628848d`:
 
 - `glance/Onboarding/EnrollmentRingView.swift`
 - `glance/Onboarding/EnrollmentDirectionSweep.swift`
 - `glance/Onboarding/EnrollmentSweepWindowController.swift`
 
-Viso adapts the animation to its five-pose server-driven enrollment and camera panel. Glance branding assets and model weights are not bundled.
+The native WPF theme also takes design inspiration from `GlanceTheme.swift` and `SettingsWindowView.swift`: dark surfaces, blue enrollment accents, focused prompts, and a floating bottom navigation bar. Viso adapts the animation to its five-pose engine-driven enrollment and camera panel. Glance branding assets and model weights are not bundled.
 
 MIT License
 

@@ -1,6 +1,31 @@
 # Architecture
 
-## Current: recognition sandbox
+## Current: native Windows application
+
+```text
+Viso.exe — C# / WPF, .NET Framework 4.8 (x64)
+  ├─ Embedded XAML, native window/control/file-dialog stack
+  ├─ Your face / Unlock test / Image lab / Activity / Settings
+  ├─ Eased transforms, 80-tick enrollment ring, reduced-motion handling
+  └─ UTF-8 JSON over redirected child-process stdin/stdout
+                    │ private pipes, no listening port
+Python native worker (backend/viso/native.py)
+  ├─ DirectShow camera thread, monotonic timestamps, bounded six-frame queue
+  ├─ 15 Hz preview events, coalesced before WPF presentation
+  ├─ Serialized recognition and enrollment/attempt commands
+  ├─ Explicit native prompt acknowledgment discards pre-prompt camera frames
+  └─ Existing SandboxService, ONNX/MediaPipe models and DPAPI store
+```
+
+`scripts/start.ps1` builds and launches the native app. The installed Windows C# compiler builds the x64 executable without a new runtime dependency or SDK. The process client drains diagnostics, bounds request timeouts, fails pending requests on worker exit, and shuts down the worker on window close. Camera access is opt-in and released on page changes, completion, minimizing, session lock, and close. Cancellation uses a UI generation counter as well as worker-owned session revocation; late responses cannot advance a newer operation.
+
+UI preferences are separate from face data, in `.viso/desktop.json`. Session exports contain messages and times only. Face profiles retain the existing compatible `.viso/profile.dpapi` format. The private pipes are a desktop transport, not a privileged pre-login authentication boundary.
+
+### Native motion
+
+One restrained motion language: cubic ease-out, 90–180 ms input feedback, 150 ms measured head tracking, 300 ms captured sectors, 320 ms page entrances, and a 420 ms completion ring. Only active enrollment/scanning attaches the ring's render callback. Disabling animations stops active timelines and resolves ring properties to their target values. Windows `ClientAreaAnimation` and the in-app reduced-motion preference both apply. Motion presents backend state; it never supplies pose, eye, identity, or completion evidence.
+
+## Earlier browser recognition sandbox
 
 ```text
 React / TypeScript UI
@@ -22,7 +47,7 @@ Python sandbox service (one serialized inference/state owner)
   └─ Current-user DPAPI template storage, or memory-only storage
 ```
 
-OpenCV's CPU DNN backend executes the ONNX models. Python provides a quick, inspectable test harness on the available Windows toolchain; the model files and recognition math are portable to a later native implementation. The React UI is suitable for a future desktop shell.
+OpenCV's CPU DNN backend executes the ONNX models. The native app reuses the tested Python recognition implementation directly through its worker; React is not part of the desktop runtime. The earlier browser source and HTTP tests remain available as development references.
 
 The enrollment ring and light sweeps are a React/CSS adaptation of Glance's MIT-licensed onboarding animation. Source revision and attribution are in `THIRD_PARTY_NOTICES.md`.
 
@@ -106,11 +131,11 @@ Mutating requests require the `X-Viso-Token` from `/api/status`. Image values ar
 
 ## Windows milestones
 
-1. **Recognition sandbox (current):** real enrollment/matching, explicit simulated unlock, repeatable image tests, Windows data-at-rest storage.
+1. **Native desktop recognition sandbox (current):** real enrollment/matching, WPF enrollment/settings, explicit simulated unlock, repeatable image tests, Windows data-at-rest storage.
 2. **Liveness evaluation:** labeled live/photo/screen/video samples; evaluate an anti-spoofing model and randomized motion challenges against measured error rates.
 3. **Native recognition host:** C++ service using the same ONNX models and a camera source independent of a logged-in browser. Retain preprocessing/score parity tests.
 4. **Credential Provider prototype in a Windows VM:** add a custom sign-in tile for a dedicated local test account. The provider submits a valid Windows credential after the native service's decision. This still requires credential storage/release design.
-5. **Desktop packaging:** enrollment UI shell, installer/service lifecycle, recovery and update handling, then additional account types.
+5. **Distribution:** installer/service lifecycle, recovery and update handling, then additional account types. The native WPF enrollment UI is already implemented.
 
 The sandbox HTTP API and current-user DPAPI store are not the pre-login service interface. Pre-login key availability, service identity, authenticated IPC, per-attempt freshness, cancellation, multi-user isolation, and camera ownership must be designed for the native service.
 

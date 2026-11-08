@@ -2,9 +2,9 @@
 
 ## Initial test environment
 
-Run `scripts/start.ps1 -Ephemeral`. The profile lives only in the Python process. The lock screen in the interface is a simulation. Setup dependencies are isolated in `.venv` and `node_modules`.
+Run `scripts/start.ps1 -Ephemeral`. This launches the native WPF app with a memory-only Python recognition worker. The lock screen in the interface is a simulation. Python dependencies are isolated in `.venv`; the native build uses the installed Windows .NET Framework.
 
-The default launch without `-Ephemeral` keeps one encrypted test profile in `.viso/profile.dpapi`. The startup terminal and **Profile storage** metric identify the active mode.
+The default launch without `-Ephemeral` keeps one encrypted test profile in `.viso/profile.dpapi`. The **On-device by design** readout and Settings profile details identify the active mode.
 
 ## Automated checks
 
@@ -12,7 +12,7 @@ The default launch without `-Ephemeral` keeps one encrypted test profile in `.vi
 .\scripts\test.ps1
 ```
 
-This downloads three optional public example portraits into the git-ignored `tests/.fixtures/`, runs Python's unittest suite against the actual ONNX models, runs camera-sampler tests with Node's built-in test runner, and builds/type-checks the frontend. Test storage uses temporary directories or explicit memory-only profiles.
+This downloads three public example portraits into the git-ignored `tests/.fixtures/`, runs Python's unittest suite against the actual ONNX models, then builds and smoke-tests the native app. Test storage uses temporary directories or explicit memory-only profiles. Native screenshots and the smoke report are written to `test-results/native/`.
 
 Coverage includes:
 
@@ -34,6 +34,8 @@ Coverage includes:
 - New scans invalidate old scans; profile deletion revokes active scans.
 - DPAPI persistence, encrypted bytes, corrupted-profile handling, and deletion.
 - Loopback API token, origin/host validation, malformed/oversized requests, and static-path traversal.
+- Native pipe initialization, malformed-command recovery, real inference, and EOF shutdown.
+- Native camera queue freshness, explicit prompt acknowledgment, cancellation, finish-only persistence, and photo rejection.
 
 For the backend suite alone:
 
@@ -56,8 +58,8 @@ Real-model tests are marked skipped if the optional image fixtures have not been
 | Reduced-motion preference | Static ring, progress, and text guidance; no moving light sweeps |
 | Stay facing forward at the left/right prompt | The next pose is not captured |
 | Close either eye / show a different person during enrollment | Current hold resets; sample is not captured |
-| Cancel enrollment / Escape / hide tab mid-enrollment | Incomplete samples discarded; no profile saved |
-| Inspect a frame | Face box and timing appear; simulated state is unchanged |
+| Cancel enrollment / Escape / minimize mid-enrollment | Incomplete samples discarded; no profile saved |
+| Inspect an image | Face quality, eye state, similarity, and timing appear; simulated state is unchanged |
 | Match enrolled face | Prompt for a blink; unlock only after both eyes reopen and remain open |
 | Shift/turn slightly while scanning | Small tracked score dips briefly pause; a fresh passing match resumes within 200 ms |
 | Move slightly after blinking | A brief score dip restarts open-eye confirmation, rather than immediately requiring another blink |
@@ -74,15 +76,21 @@ Real-model tests are marked skipped if the optional image fixtures have not been
 | Image lab: another person | Rejected result; simulator stays locked |
 | Multiple visible faces | Rejected; no dominant-face shortcut |
 | Stop test / Escape | Scan canceled and simulator locked |
-| Switch page/input mode or hide tab | Camera tracks stopped; scan canceled |
+| Switch page, minimize, or lock Windows | Camera released; scan canceled |
 | Deny camera access / unplug camera | Actionable error; image testing still available |
 | Change threshold | Prior attempt invalidated; the next attempt uses the new threshold |
 | Delete enrollment | Profile removed, attempts revoked, enrollment available again |
 | Restart in ephemeral mode | No profile restored |
 | Restart in persistent mode | Same Windows user restores encrypted profile |
-| Restart service with an open UI | Refresh/reconnect before continuing mutations |
+| Recognition worker exits unexpectedly | Native error appears; close and reopen Viso |
 
 ## Development verification
+
+Version 0.6 passes **91 backend tests** plus the native C#/WPF build and smoke check. The native smoke check opens all five pages, captures actual WPF raster output, checks minimum window size and reduced-motion completion, verifies button gating, runs real blank-frame inference, and performs real image enrollment → matching-photo rejection → deletion through the C# process client. The latter also verifies a Unicode profile name. Camera capture is not started by automated visual checks. Physical-webcam enrollment, driver disconnect behavior, and natural blink timing still need a live-camera check.
+
+Native rendering regressions are recorded in `test-results/native/rendering.json`: 30 pixel checks cover circular preview fill/mirroring with 4:3, 16:9, and portrait inputs, plus visible profile-name text in editable and active-enrollment states. They run at 1040/780 window widths and 100%/150%/200% raster scales. Full-window captures also exercise the shared text-box template and a decoded portrait inside the enrollment ring.
+
+The historical browser verification below documents earlier releases, not the current native UI.
 
 Version 0.5 passed **81 backend tests, 4 camera-sampler tests, and the TypeScript/production build** with MediaPipe 0.10.32. The 19 added tilt regressions cover bounded head-local eye geometry, invalid rotations, chin-up open-eye calibration, pose-bound relative and absolute blink evidence, either-eye closure, identity/gap resets, exclusion of inferred/cached frames from calibration, and effective API eye-state reporting in both flows. The existing real-model portrait checks still pass. Controlled geometry and injected observations do not establish physical-webcam accuracy; repeat the chin-up open/blink/wink scenarios on the actual camera.
 

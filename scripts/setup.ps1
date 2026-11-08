@@ -13,11 +13,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
     & '.\.venv\Scripts\python.exe' scripts/download_models.py
     if ($LASTEXITCODE -ne 0) { throw 'Model download failed. Re-run setup to retry.' }
-    if (Test-Path 'package-lock.json') { npm ci } else { npm install }
-    if ($LASTEXITCODE -ne 0) { throw 'Frontend dependency installation failed.' }
     if (-not $SkipBuild) {
-        npm run build
-        if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
+        & (Join-Path $PSScriptRoot 'build-native.ps1')
     }
     Write-Host 'Viso is ready. Run: .\scripts\start.ps1' -ForegroundColor Green
 } finally {

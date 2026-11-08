@@ -2,9 +2,11 @@
 
 **Look. You're in.** A Windows-first face-unlock project.
 
-## Milestone 1: local test bench
+## Native Windows app
 
-This build runs real face detection and recognition against a **simulated lock screen**. The interface runs in your browser, backed by a local Python/OpenCV process. Windows sign-in integration is a later milestone.
+Viso is a **native C#/WPF desktop application** for face enrollment, unlock testing, image inspection, profile management, and settings. Its Glance-inspired dark interface uses a segmented enrollment ring, directional light, and eased native animations. The Python/OpenCV recognition worker starts with the app and communicates over private process pipes. No browser, web server, Electron, or WebView is needed.
+
+Unlock testing currently operates a **simulator**. Windows sign-in integration is a later milestone.
 
 ### Included
 
@@ -19,7 +21,10 @@ This build runs real face detection and recognition against a **simulated lock s
 - Neutral-calibrated enrollment targets, smaller turns, and averaged samples from each stable hold.
 - Multi-angle identity matching and bounded motion recovery to reduce restarts during small head movements.
 - Pose-corrected eye geometry and identity-local open-eye references for upward head tilt.
-- Glance-style segmented enrollment ring, live head-turn feedback, and soft directional light sweeps.
+- Glance-style segmented enrollment ring, live head-turn feedback, and soft directional light cues.
+- Native window controls, camera selection, file dialogs, and keyboard navigation.
+- 90–320 ms eased UI transitions, measured-pose tracking, and a 420 ms completion ring.
+- Windows animation preferences and an in-app reduced-motion setting.
 - Adjustable cosine-similarity threshold and measured inference latency.
 - One enrolled identity, encrypted with current-user Windows DPAPI by default.
 - Ephemeral mode for a completely memory-only enrollment session.
@@ -29,19 +34,19 @@ This build runs real face detection and recognition against a **simulated lock s
 
 ## Run on Windows
 
-Requirements: **Python 3.11+**, **Node.js 22.12+**, and an up-to-date Edge or Chrome browser. Development has been verified with Python 3.14 and Node 22 on Windows.
+Requirements: **64-bit Windows 10/11**, **.NET Framework 4.8**, and **Python 3.11+**. Development has been verified with Python 3.14. The build uses Windows' installed C# compiler; Node.js and a .NET SDK are not required.
 
 From PowerShell in this folder:
 
 ```powershell
-# First-time setup: isolated Python environment, models, frontend dependencies, build
+# First-time setup: isolated Python environment, recognition models, native build
 .\scripts\setup.ps1
 
 # Recommended for initial testing: enrollment lasts only for this process
 .\scripts\start.ps1 -Ephemeral
 ```
 
-Open **http://127.0.0.1:8765** if the browser does not open automatically. Stop the service with **Ctrl+C** in its terminal.
+This opens **`desktop\bin\Viso.exe`**. After the first build, you can launch that executable directly. Keep it inside the project folder so it can locate the Python environment and models. Closing the window releases the camera and shuts down its recognition worker.
 
 To keep your enrollment encrypted between runs:
 
@@ -49,15 +54,17 @@ To keep your enrollment encrypted between runs:
 .\scripts\start.ps1
 ```
 
-The model download is about 43 MB. Dependencies/models need the internet during setup; recognition and the UI run locally afterward. No administrator privileges are needed.
+The model download is about 43 MB. Dependencies/models need the internet during setup; recognition and the UI run locally afterward. No administrator privileges are needed. Persistent profiles use the existing `.viso/profile.dpapi` file; desktop preferences are stored in `.viso/desktop.json`.
 
 ### Try it with a webcam
 
-1. Select **Live camera** and click **Enable camera**. Allow the browser's camera request.
-2. Enter a profile name and click **Enroll face**. Follow the light: center, your left, your right, chin up, chin down. The segmented ring follows your head, and each captured direction turns green. The preview is mirrored, so the light travels in your direction of movement.
-3. Hold each requested angle briefly with both eyes open. Viso averages the stable frames and captures automatically. Return to center between turns when prompted. **Cancel enrollment** or **Escape** discards the unfinished sequence.
-4. Click **Test face unlock**. Look at the camera, **blink both eyes when prompted**, then reopen them. The simulator unlocks only after it confirms your eyes are open again.
-5. Click **Lock again** to repeat. Every new attempt needs a new blink. **Stop test** or **Escape** cancels a running scan.
+1. In **Your face**, enter a profile name. **Start camera** previews your camera; **Begin enrollment** also starts it automatically.
+2. Follow the five prompts: center, your left, your right, chin up, chin down. The preview is mirrored, and the ring tracks your measured head direction.
+3. Hold each requested angle briefly with both eyes open. Viso averages the stable frames and captures automatically. Return to center when prompted. **Cancel** or **Escape** discards the unfinished sequence.
+4. Open **Unlock test**, then **Test face unlock**. Look at the camera, **blink both eyes when prompted**, then reopen them. The simulator unlocks only after it confirms your eyes are open again.
+5. Start another test to repeat. Every attempt needs a new blink. The camera stops after completion, when changing pages, when minimizing, on Windows session lock, and when closing Viso.
+
+Use **Settings** to choose a camera, adjust the similarity threshold, reduce motion, or delete/reset an enrollment. **Ctrl+Tab** moves between pages. **Activity** contains the last 100 events and a native **Export JSON** dialog.
 
 Use small head movements, even lighting, and a camera near eye level. Enrollment expires after 90 seconds; unlock attempts expire after 20 seconds. Blink normally after the prompt, then reopen both eyes. A sampled brief closure is sufficient; holding the eyes closed for over 0.8 seconds resets the challenge. Camera frames are sampled independently of network replies to reduce missed blinks.
 
@@ -65,31 +72,31 @@ Small movements can briefly show **Following your movement…** while Viso refre
 
 For the upward angle, lift your chin slightly while keeping your eyes on the camera. Version 0.5 compensates bounded eye foreshortening and learns temporary references from strictly measured open eyes. The readout shows **Tilt adjusted** when those references resolve a chin-up measurement. Begin facing the camera with both eyes open; references are rebuilt for each enrollment or unlock attempt. A large tilt by itself does not count as the prompted blink.
 
-The camera stops when you leave the test-bench page, switch input modes, or hide the browser tab. Restart it with **Enable camera**.
+Camera access uses Windows desktop-app permissions: **Settings → Privacy & security → Camera → Let desktop apps access your camera**.
 
 ### Try it without a webcam
 
-1. Select **Image lab** and choose a clear reference photo containing one face with both eyes open.
-2. Enter a name and click **Enroll face**.
-3. Use the **+** button to choose a different photo of the same person.
-4. Click **Inspect frame only** to compare similarity. **Test photo rejection** should keep the simulator locked even for a matching photo. Then try a photo of another person.
+1. Open **Image lab → Choose photos** and select up to five clear JPEG/PNG reference photos of one person with both eyes open.
+2. Enter a name and click **Enroll photos**.
+3. Choose a different photo of the same person. The dropdown selects a photo from the loaded set.
+4. Click **Inspect** to compare similarity. **Test photo rejection** keeps the simulator locked even for a matching photo. Then try a photo of another person.
 
-Choosing images replaces the in-memory input set; it does not replace the enrolled identity. Delete enrollment in **Identity vault** to start over. **Inspect frame only** measures the current input without changing the simulated lock state.
+Choosing photos replaces the in-memory input set. Delete enrollment in **Settings** to start over. **Inspect** measures the selected input without changing the simulated lock state.
 
 ## Development
 
 ```powershell
-# Terminal 1: local API, memory-only profile
-.\.venv\Scripts\python.exe -m backend.viso.server --ephemeral
+# Compile the native executable
+.\scripts\build-native.ps1
 
-# Terminal 2: React hot reload
-npm run dev
+# Run native visual/IPC smoke checks with temporary, memory-only enrollment
+.\scripts\build-native.ps1 -SmokeTest
 ```
 
-Use **http://127.0.0.1:5173** for hot reload. The dev server proxies `/api` to port 8765. For the built UI, `npm run build` updates `dist/`; refresh port 8765 afterward.
+Native UI source lives in `desktop/Viso/`. XAML is embedded into the executable. The smoke check loads the real models, renders native screenshots into `test-results/native/`, verifies control gating and reduced motion, and checks inference, Unicode IPC, photo rejection, and deletion when test portraits are available.
 
 ```powershell
-# Real-model integration tests + backend tests + TypeScript / production build
+# Real-model integration tests + backend tests + native build and smoke check
 .\scripts\test.ps1
 ```
 
@@ -98,21 +105,25 @@ See [test scenarios](docs/testing.md), [architecture and next milestones](docs/a
 ## Project layout
 
 ```text
-src/                       React + TypeScript test bench
-backend/viso/              Loopback API, recognition, profile storage, simulation
+desktop/Viso/              Native C#/WPF UI, motion, camera catalog, process client
+desktop/bin/               Built Viso.exe (git-ignored)
+backend/viso/native.py     Private desktop worker and DirectShow camera capture
+backend/viso/              Recognition, profile storage, simulation, legacy API
 backend/tests/             Validation, storage, HTTP, and real-model tests
 models/manifest.json       Pinned model revisions and SHA-256 hashes
 scripts/                   Setup, launch, model download, and test commands
 docs/                      Architecture and test-environment notes
 .viso/profile.dpapi        Local encrypted enrollment (git-ignored)
+.viso/desktop.json         Desktop preferences (git-ignored)
+src/                       Earlier browser test bench (not used by native app)
 ```
 
 ## Troubleshooting
 
-- **Camera unavailable:** try Edge/Chrome, check site camera permissions, or close another application using the webcam. Image lab works without camera access.
-- **Service unavailable:** start the Python service, then use **Engine connected / Service unavailable** to reconnect. If the process restarted during an operation, refresh the page.
-- **Port in use:** stop the previous Viso process or use `start.ps1 -Port 8766`. The Vite dev proxy specifically uses port 8765.
+- **Camera unavailable:** check Windows desktop-camera permissions, close other camera apps, and choose/refresh the device under Settings. Image lab works without a camera.
+- **Engine unavailable:** close Viso, run `setup.ps1` if dependencies are missing, then reopen the app. Engine errors appear inside the native window.
+- **Build cannot replace Viso.exe:** close the running app before rebuilding.
 - **Models unavailable/corrupt:** rerun `setup.ps1`; model checksums are verified before loading.
-- **Upgrading:** restart the service and refresh the browser to load the matching camera pipeline. Persistent SFace profiles remain compatible; re-enroll to collect the improved guided samples. Ephemeral profiles last only for their original process. The new UI checks backend camera-pipeline compatibility.
+- **Upgrading:** close Viso and run `start.ps1` to rebuild. Existing DPAPI face profiles remain compatible. Ephemeral profiles last only for their original process.
 - **Eyes not confirmed open:** improve lighting, reduce glare on glasses, move closer, and face the camera more directly. The eye thresholds are experimental and may need tuning after real-camera testing.
 - **Profile cannot be opened:** DPAPI storage belongs to the Windows user/machine that created it. Use **Reset profile** to remove an unreadable sandbox profile, then enroll again.
