@@ -133,7 +133,7 @@ namespace Viso
                 return Task.FromResult(0);
             });
             Click("ClearActivity", delegate { events.Clear(); RenderEvents(); return Task.FromResult(0); });
-            Click("RefreshCameras", delegate { RefreshCameras(); return Task.FromResult(0); });
+            Click("RefreshCameras", RefreshCameras);
             Find<TextBox>("SignInAccount").Text = Environment.UserName;
             Click("RefreshSignIn", async delegate { Text("SignInStatus", await SignInSettings.Status()); });
             Click("LinkSignIn", async delegate {
@@ -183,13 +183,21 @@ namespace Viso
                         cameraIndex = Math.Max(0, Math.Min(32, (int)preferences.Number("camera_index")));
                     } catch { /* A malformed UI preference cannot affect profile storage. */ }
                 }
-                RefreshCameras(); UpdateMotion(); SetPage("face");
+                UpdateMotion(); SetPage("face");
                 engine = new EngineClient(root, ephemeral || smoke);
                 engine.Event += EngineEvent;
                 timer.Start();
-                status = await engine.Send("status");
+                // Let the window paint and discover devices while Python loads.
+                // A slow DirectShow driver must not block the UI thread.
+                var engineStatus = engine.Send("status");
+                await RefreshCameras();
+                status = await engineStatus;
                 if (closed) return;
                 initialized = true; UpdateStatus(); UpdateControls();
+                await engine.WaitForModels();
+                status = await engine.Send("status");
+                if (closed) return;
+                UpdateStatus(); UpdateControls();
                 Log(Ready ? "Local recognition engine ready." : "Recognition engine needs attention.");
                 if (smoke) await SmokeTest();
             }
@@ -419,12 +427,13 @@ namespace Viso
         }
         private void UpdateStatus()
         {
-            Text("EngineStatus", Ready ? "On-device · ready" : "Engine unavailable"); Find<System.Windows.Shapes.Ellipse>("EngineDot").Fill = Brush(Ready ? "#65C7A0" : "#E1A179");
+            bool loading = status.Child("engine").Flag("loading");
+            Text("EngineStatus", Ready ? "On-device · ready" : loading ? "Starting locally…" : "Engine unavailable"); Find<System.Windows.Shapes.Ellipse>("EngineDot").Fill = Brush(Ready ? "#65C7A0" : loading ? "#9AA6B5" : "#E1A179");
             Text("StorageLabel", status.Text("storage") == "Memory only" ? "Memory only · this session" : "Encrypted for your Windows user");
             var profile = status.Child("profile");
             Text("ProfileTitle", profile.Text("name")); Text("ProfileDetail", profile.Number("samples") + " samples · " + status.Text("storage"));
             Text("SettingsProfile", HasProfile ? profile.Text("name") + " · " + profile.Number("samples") + " samples · " + status.Text("storage") + "\n" + profile.Text("matching") + " matching · " + profile.Text("source") + " enrollment" : status.Text("storage_error") != "" ? status.Text("storage_error") : "No face enrolled yet.");
-            if (status.Child("engine").Get("message") != null) Fail(new InvalidOperationException(status.Child("engine").Text("message")));
+            if (!loading && status.Child("engine").Get("message") != null) Fail(new InvalidOperationException(status.Child("engine").Text("message")));
             if (status.Get("storage_error") != null) Fail(new InvalidOperationException(status.Text("storage_error")));
             UpdateControls();
         }
@@ -459,10 +468,12 @@ namespace Viso
             Find<Button>("ClearActivity").IsEnabled = events.Count > 0 && !busy;
         }
 
-        private void RefreshCameras()
+        private async Task RefreshCameras()
         {
+            var names = await Task.Run((Func<List<string>>)CameraCatalog.List);
+            if (closed) return;
             var picker = Find<ComboBox>("CameraPicker"); bool wasInitialized = initialized; initialized = false;
-            picker.ItemsSource = CameraCatalog.List(); picker.SelectedIndex = Math.Min(cameraIndex, picker.Items.Count - 1);
+            picker.ItemsSource = names; picker.SelectedIndex = Math.Min(cameraIndex, picker.Items.Count - 1);
             initialized = wasInitialized;
         }
         private void UpdateMotion() { Motion.Reduced = Find<CheckBox>("ReduceMotion").IsChecked == true; if (!Motion.Enabled) Motion.StopAll(); Ring.ReducedMotion = !Motion.Enabled; Ring.UpdateMotion(); }
@@ -528,6 +539,7 @@ namespace Viso
             try
             {
                 if (!Ready) throw new InvalidOperationException("Real recognition models did not initialize.");
+                if (Find<Border>("Notice").Visibility == Visibility.Visible) throw new InvalidOperationException("Model loading left an error notice after successful initialization.");
                 string output = Path.Combine(root, "test-results", "native"); Directory.CreateDirectory(output);
                 SetPage("face");
                 await RenderingChecks.Run(window, output, SetPreview, delegate(bool enrolling) { operation = enrolling ? "enrollment" : ""; UpdateControls(); });
@@ -541,7 +553,7 @@ namespace Viso
                 if (testedPortrait) SetPreview(DecodeBitmap(File.ReadAllBytes(fixture), 720));
                 Find<TextBox>("ProfileName").Text = "Native preview";
                 operation = "enrollment"; UpdateControls();
-                ApplyEnrollment(Json.Data("title", "Turn slightly to your left", "instruction", "Follow the light. Keep both eyes visible.", "message", "Perfect. Hold this position…", "captured", 1, "step", "left", "hold_progress", .65, "state", "capturing", "guidance", Json.Data("yaw", 14, "pitch", 0)));
+                ApplyEnrollment(Json.Data("title", "Turn slightly to your left", "instruction", "Follow the light. Keep both eyes visible.", "message", "That's enough. Pause briefly…", "captured", 1, "step", "left", "hold_progress", .65, "state", "capturing", "guidance", Json.Data("yaw", 14, "pitch", 0)));
                 Ring.Active = true; await Task.Delay(450); Snapshot(Path.Combine(output, "enrollment.png"));
                 operation = ""; SetPreview(null); Find<TextBox>("ProfileName").Clear(); UpdateControls();
                 Find<CheckBox>("ReduceMotion").IsChecked = true;

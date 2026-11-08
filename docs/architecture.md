@@ -19,6 +19,8 @@ Python native worker (backend/viso/native.py)
 
 `scripts/start.ps1` builds and launches the native app. The installed Windows C# compiler builds the x64 executable without a new runtime dependency or SDK. The process client drains diagnostics, bounds request timeouts, fails pending requests on worker exit, and shuts down the worker on window close. Camera access is opt-in and released on page changes, completion, minimizing, session lock, and close. Cancellation uses a UI generation counter as well as worker-owned session revocation; late responses cannot advance a newer operation.
 
+The native worker emits `ready` when its command transport/profile store is available, then initializes models on a background thread and emits `engine_ready` (including on initialization failure). Status exposes separate `loading` and `ready` engine flags; inference actions remain gated until models load successfully. WPF device enumeration runs off the UI thread and overlaps worker startup. Shutdown waits for initialization before closing the engine.
+
 UI preferences are separate from face data, in `.viso/desktop.json`. Session exports contain messages and times only. Face profiles retain the existing compatible `.viso/profile.dpapi` format. The private pipes are a desktop transport, not a privileged pre-login authentication boundary.
 
 ### Optional native Windows sign-in
@@ -33,13 +35,15 @@ VisoSignInService.exe (LocalSystem, Program Files)
   ├─ Local/Microsoft account password validation through LogonUser
   ├─ Per-SID machine-DPAPI records in protected ProgramData
   ├─ Revision-checked commit/release and serialized vault mutations
-  └─ Fresh Job-contained Python process (-I -B) for every verification
+  └─ One prewarmed Job-contained Python process (-I -B), consumed once per scan
         ├─ Fixed 0.55 match threshold; current-model camera profile
         ├─ Service-owned DirectShow capture and fresh blink acknowledgment
         └─ Acceptance → one-use local/MSA Windows credential serialization
 ```
 
-`signin/Provider` implements V2 user-associated tiles for local and personal Microsoft accounts, for logon and workstation unlock. It supplies no default auto-logon and does not filter other providers. Local credentials use `CredProtectW` and a packed `KERB_INTERACTIVE_UNLOCK_LOGON`; Microsoft accounts use `CRED_PACK_PROTECTED_CREDENTIALS | CRED_PACK_ID_PROVIDER_CREDENTIALS`. Windows' Negotiate authentication package makes the final authentication decision.
+`signin/Provider` implements V2 user-associated tiles for local and personal Microsoft accounts, for logon and workstation unlock. Linked account-record presence is a default-selection hint; the service still validates the full account binding. Tile selection starts one background scan. A message-only window dispatches status/prompt callbacks on LogonUI's apartment, and only an accepted credential triggers `CredentialsChanged` plus default auto-serialization. Cancellation invalidates generation-tagged pending UI updates and pipe work. Failed scans do not automatically restart until a new selection; the arrow remains an explicit retry. Local credentials use `CredProtectW` and a packed `KERB_INTERACTIVE_UNLOCK_LOGON`; Microsoft accounts use `CRED_PACK_PROTECTED_CREDENTIALS | CRED_PACK_ID_PROVIDER_CREDENTIALS`. Windows' Negotiate authentication package makes the final authentication decision.
+
+The service's standby process verifies and loads models before receiving a profile, without opening a camera. It is used for exactly one attempt and destroyed afterward. A replacement is warmed after the previous worker is disposed. One camera semaphore, per-attempt deadlines, Job containment, and vault revision checks still apply. Standby initialization failures are retried on demand.
 
 The SCM service PID authenticates the pipe server; pipe impersonation identifies clients. Only a SYSTEM `System32\LogonUI.exe` caller in an interactive session may request credentials. Account linking validates the password and requires the resulting SID to match the caller. The service accepts no supplied frames or success claims. Prompt acknowledgment comes from LogonUI, and the worker discards pre-prompt samples through the existing native pipeline.
 
@@ -116,13 +120,15 @@ Unlock references train only on fully matched strict-open frames in the initial 
 
 ### Capture timing
 
+The native capture thread retains up to six immutable raw BGR frames at camera rate (30 fps requested). Only the desktop preview is encoded: at most 15 Hz, a 720-pixel long edge, JPEG quality 80. Sign-in disables preview encoding entirely. Recognition uses the original frame up to a 960-pixel long edge, and repeated polling of one captured frame cannot advance enrollment. Native timestamps use the same process monotonic clock as the attempt.
+
 `CameraSampler` uses video-frame callbacks and a reused JPEG canvas independently of HTTP requests. Sampling targets 20 Hz, retaining at most six recent frames; camera frames older than 450 ms are discarded before sending. Batches contain images and monotonic millisecond offsets relative to starting the attempt. The server validates finite, strictly increasing offsets, a six-frame limit, and a receipt-time window of -250 to +750 ms to allow initial request transit. Blink durations use capture time rather than the speed at which a buffered batch is processed. Wall-clock expiry remains server-enforced.
 
 The backend stops a batch when it first issues a blink prompt. A challenge counter tells the UI to discard pre-prompt samples, including after challenge retries. Unlock can only occur on the **last** frame of a batch, with both eyes open and a fresh identity measurement; a later closed/uncertain frame cannot be hidden behind earlier open evidence. Abort/stop releases the queue and video callback. These timestamps and frames are sandbox client input, not proof of a physical camera or replay resistance.
 
 ### Guided enrollment
 
-The backend chooses center → subject's left → subject's right → up → down, requiring a brief return to neutral between directional captures. Positive yaw is the subject's left, positive pitch is chin down; the browser mirrors only the preview. The neutral hold's median pose establishes a pitch/yaw baseline. Turns target 16° ±6° yaw; up/down target 12° ±5° pitch relative to neutral, with limits on other axes. Three observations spanning at least 350 ms, with pose drift ≤5°, are required for a capture. Each pose stores the normalized average embedding of its stable hold instead of only the last frame. Identity consistency is checked against both previous poses and frames in the current hold at ≥0.50 cosine similarity.
+The backend chooses center → subject's left → subject's right → up → down, requiring a brief return to neutral between directional captures. Positive yaw is the subject's left, positive pitch is chin down; only the preview is mirrored. The neutral hold's median pose establishes a pitch/yaw baseline. Turns target 14° ±8° yaw with ±13° pitch; up/down target 10° ±6° pitch with ±13° yaw, relative to neutral. Roll may vary within ±18°. Three observations spanning at least 240 ms, with pose drift ≤9°, are required for a capture. Recenter accepts ±9° yaw/pitch, with two observations across 120 ms. Each pose stores the normalized average embedding of its hold instead of only the last frame. Identity consistency is checked against both previous poses and frames in the current hold at ≥0.50 cosine similarity. Eyes must still be open, and a neutral pose cannot fill a directional sample.
 
 The 80-tick ring shows a median-of-three measured pose relative to neutral with a six-tick-wide live turn band. Four directional sectors light only after the server captures the matching angle; center pulses the whole ring. Layered, pointer-transparent light ribbons travel toward the requested direction after a 360 ms delay. A pose change, recenter, cancellation, or completion removes the previous sweep. Ticks merge into a solid ring on completion, shown for 1.1 seconds after saving. Reduced-motion settings keep static guidance and disable animation. Validation uses actual individual poses, not smoothed display values or animation progress. Feedback distinguishes chin movement, left/right correction, recentering, and unwanted sideways tilt. Wrong poses/faces or closed eyes reset the current hold. A 90-second timeout or cancellation discards unfinished samples. Only the explicit finish endpoint writes the profile once all five poses are complete.
 
@@ -161,4 +167,4 @@ Mutating requests require the `X-Viso-Token` from `/api/status`. Image values ar
 2. **Liveness evaluation:** labeled live/photo/screen/video samples and measured error rates; evaluate stronger presentation-attack detection and randomized challenges.
 3. **Distribution hardening:** signed binaries, installer/update lifecycle exercised on supported Windows versions, and driver compatibility results.
 
-Use a rebootable Windows VM with a snapshot and camera passthrough for integrated testing. Windows Sandbox can exercise the desktop UI but is not a substitute for reboot/logon-provider tests. [Validation coverage](testing.md#windows-sign-in-validation) identifies what has and has not run.
+Use a rebootable Windows VM with a snapshot and camera passthrough for integrated testing. Windows Sandbox can exercise the desktop UI but is not a substitute for reboot/logon-provider tests. [Validation coverage](https://github.com/notg0d/viso/blob/test/docs/testing.md#windows-sign-in-validation) and [0.7 measurements](performance.md) identify what has and has not run.

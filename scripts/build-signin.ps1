@@ -19,7 +19,7 @@ try {
     $env:LIB = (Join-Path $vc.FullName 'lib\x64') + ';' + (Join-Path $kits "Lib\$($sdk.Name)\ucrt\x64") + ';' + (Join-Path $kits "Lib\$($sdk.Name)\um\x64")
     $env:PATH = (Split-Path $compiler) + ';' + $env:PATH
     $common = @('/nologo','/std:c++17','/utf-8','/EHsc','/W4','/WX','/O2','/MT','/guard:cf','/DUNICODE','/D_UNICODE','/D_WIN32_WINNT=0x0A00',"/Fo$out\")
-    $libraries = @('ole32.lib','uuid.lib','shlwapi.lib','secur32.lib','credui.lib','advapi32.lib','gdi32.lib','propsys.lib')
+    $libraries = @('ole32.lib','uuid.lib','shlwapi.lib','secur32.lib','credui.lib','advapi32.lib','gdi32.lib','propsys.lib','shell32.lib','comctl32.lib','user32.lib')
     & $compiler @common /LD "$root\signin\Provider\Provider.cpp" "$root\signin\Provider\Auth.cpp" /link @libraries "/OUT:$out\VisoCredentialProvider.dll" "/IMPLIB:$out\VisoCredentialProvider.lib" /EXPORT:DllGetClassObject,PRIVATE /EXPORT:DllCanUnloadNow,PRIVATE /DYNAMICBASE /NXCOMPAT /GUARD:CF
     if ($LASTEXITCODE -ne 0) { throw 'Credential Provider build failed.' }
     $framework = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'

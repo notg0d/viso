@@ -41,8 +41,10 @@ public:
     struct Message : std::vector<std::wstring> { ~Message() { for (auto& value : *this) Erase(value); } };
     Pipe(IQueryContinueWithStatus* status, std::function<bool()> active) : query(status), active(std::move(active))
     {
+        Check();
         const auto path = L"\\\\.\\pipe\\Viso.SignIn.v1";
         if (!WaitNamedPipeW(path, 2000) && GetLastError() != ERROR_SEM_TIMEOUT) throw std::runtime_error("unavailable");
+        Check();
         handle = CreateFileW(path, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IMPERSONATION, nullptr);
         if (handle == INVALID_HANDLE_VALUE) throw std::runtime_error("unavailable");
         ULONG pid = 0; SERVICE_STATUS_PROCESS serviceStatus = {}; DWORD needed = 0;

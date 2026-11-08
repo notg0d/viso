@@ -2,7 +2,7 @@
 
 Viso includes an x64 V2 Credential Provider and a `VisoSignIn` Windows service. The provider submits a Windows credential after the service matches a face, prompts for a fresh blink, and confirms both eyes reopened. Windows performs the account authentication.
 
-**Status:** implemented and component-tested; actual lock-screen/reboot authentication, real password linking, and camera access from LocalSystem/session 0 are not yet verified. Use a rebootable Windows VM with camera passthrough for the first integrated test. No service or provider has been installed as part of development verification.
+**Status:** the existing installed account-linking/sign-in flow has been reported working on a local Windows installation. The 0.7 automatic-selection and prewarming changes pass component checks; the new build still needs interactive LogonUI, reboot, and multi-user validation on the target machine.
 
 ## Account support
 
@@ -41,11 +41,17 @@ The installer creates protected directories atomically. Retained `%ProgramData%\
 1. Launch `scripts/start.ps1` without `-Ephemeral` and save a five-angle **camera** enrollment. Photo-lab and memory-only enrollment cannot enable Windows sign-in.
 2. In **Settings**, select the desired camera. Under **Windows face sign-in**, choose the account type, enter its username/email and password, and click **Link / update account**.
 3. Use **Refresh status** to confirm the account is linked. Password fields clear after a link attempt, when leaving Settings, on minimize/session lock, and on close.
-4. Lock Windows. Choose **Sign-in options → Viso Face**, then submit the scan. Look ahead with eyes open, blink after the displayed prompt, and reopen both eyes.
+4. Lock Windows. Choose **Sign-in options → Viso Face**. Selection starts the scan automatically. Look ahead with eyes open, blink after the displayed prompt, and reopen both eyes. After a failure, select the arrow to retry or switch sign-in options.
 
-The service owns a fresh camera process for each scan. Only one scan can hold the camera at a time. The desktop stops its camera on session lock. The sign-in match threshold is fixed at **0.55**; the desktop threshold slider affects simulator tests only. Recognition attempts expire after 20 seconds, with an outer 45-second worker deadline covering initialization and IPC. The provider accepts a released credential once, for at most 10 seconds.
+The service preloads models in one unused, Job-contained Python worker at startup and after each scan. This standby worker receives no profile and opens no camera. A scan consumes it once and destroys it on success, error, cancellation, or timeout; no profile, eye calibration, or camera frame carries into the next worker. Only one scan can hold the camera at a time. The desktop stops its camera on session lock. The sign-in match threshold is fixed at **0.55**; the desktop threshold slider affects simulator tests only. Recognition attempts expire after 20 seconds, with an outer 45-second worker deadline covering initialization and IPC. The provider accepts a released credential once, for at most 10 seconds.
 
-The provider leaves Windows' default selection and other sign-in providers available. If recognition, the camera, the service, or a saved password fails, select your ordinary Windows password/PIN option. A failed stored password must be updated in Viso after signing in normally.
+### Default selection and automatic scanning
+
+Viso supplies a default tile for a linked account. Windows gives preference to the last successfully used provider, subject to device policy and its own selection rules. Choose Viso and complete one sign-in; subsequent locks can select that tile automatically. Viso does not force a machine-wide provider policy. Automatic scanning begins when the credential tile is selected on the sign-in screen, not behind the wallpaper-only lock screen.
+
+Selection launches background verification; a message-only window delivers status/prompt callbacks on LogonUI's UI thread. Only a fresh accepted result asks Windows to serialize automatically. Failed scans wait for a manual retry rather than repeatedly reopening the camera. Deselection, unadvising, and disconnect cancel pending work. Windows may still impose its own sign-in confirmation in some scenarios.
+
+If recognition, the camera, the service, or a saved password fails, select your ordinary Windows password/PIN option. A failed stored password must be updated in Viso after signing in normally.
 
 ## Update, disable, remove
 
@@ -65,9 +71,13 @@ This removes Viso's registrations, stops/deletes its service, and deletes its ac
 For an upgrade that retains account links:
 
 ```powershell
+# Close the desktop app, then build the updated components.
+.\scripts\build-native.ps1
+.\scripts\build-signin.ps1
+# Administrator PowerShell:
 .\scripts\uninstall-signin.ps1 -KeepAccountLinks
 # Restart Windows; rerun uninstall with -KeepAccountLinks if files remained locked.
-# Build/test the new source, then:
+# After restarting, in administrator PowerShell:
 .\scripts\install-signin.ps1
 ```
 

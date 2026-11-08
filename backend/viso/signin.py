@@ -2,6 +2,7 @@
 
 Installed with an isolated Python runtime in an administrator-owned directory.
 Each process handles one profile validation or one fresh camera challenge.
+--prewarm loads models before receiving any profile; the camera stays closed.
 """
 import json
 from pathlib import Path
@@ -68,6 +69,9 @@ def main():
         print(json.dumps(message, allow_nan=False), flush=True)
     camera = engine = host = None
     try:
+        if "--prewarm" in sys.argv[1:]:
+            engine = FaceEngine(ROOT / "models")
+            emit({"event": "ready"})
         line = sys.stdin.readline(131073)
         if len(line) > 131072:
             raise ValueError("Face profile is too large.")
@@ -79,10 +83,11 @@ def main():
         if request.get("command") != "verify":
             raise ValueError("Unsupported sign-in command.")
         emit({"event": "status", "message": "Starting camera. Look straight ahead with both eyes open."})
-        engine = FaceEngine(ROOT / "models")
+        if engine is None:
+            engine = FaceEngine(ROOT / "models")
         store = ProfileStore(ROOT, ephemeral=True)
         store.profile = profile
-        camera = Camera(lambda event: None)  # No preview frames cross the service boundary.
+        camera = Camera(lambda event: None, preview=False)
         host = NativeHost(SandboxService(engine, store), camera)
         host.signin_camera = request.get("camera", 0)
         verify(host, emit, lambda: sys.stdin.readline(128).strip() == "ack")

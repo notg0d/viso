@@ -8,7 +8,18 @@
 
 Viso is a **native C#/WPF desktop application** for face enrollment, unlock testing, image inspection, profile management, and settings. Its Glance-inspired dark interface uses a segmented enrollment ring, directional light, and eased native animations. The Python/OpenCV recognition worker starts with the app and communicates over private process pipes. No browser, web server, Electron, or WebView is needed.
 
-**Unlock test** is a simulator. An optional native **Windows sign-in prototype** now supports local accounts and personal Microsoft accounts through a Credential Provider and LocalSystem service. See [Windows sign-in setup](docs/windows-signin.md). Actual lock-screen/reboot authentication and service camera access still need VM validation.
+**Unlock test** is a simulator. The optional native **Windows sign-in prototype** supports local accounts and personal Microsoft accounts through a Credential Provider and LocalSystem service. See [Windows sign-in setup](docs/windows-signin.md), including how to update an installed version.
+
+### New in 0.7
+
+- Selecting **Viso Face** starts a scan automatically. After a failed scan, the arrow retries; switching sign-in options cancels it.
+- Linked accounts advertise Viso as an available default. Windows still chooses according to its remembered sign-in provider and policy; sign in with Viso once to establish that preference.
+- The sign-in service keeps one model-loaded worker ready, with its camera closed. Each scan gets fresh verification state and destroys its worker afterward.
+- The desktop shows profile/settings status while models load, and camera discovery runs off the UI thread.
+- Raw camera frames go directly into recognition. Only the desktop preview is JPEG-encoded.
+- Enrollment accepts broader angles, gentle movement, and a shorter pause: three distinct frames across 240 ms. Returning to center takes two frames across 120 ms.
+
+[Measured timings and validation scope](docs/performance.md).
 
 ### Included
 
@@ -74,7 +85,7 @@ In an administrator PowerShell on the test Windows machine:
 .\scripts\install-signin.ps1
 ```
 
-Run Viso normally, save a five-angle camera enrollment, then use **Settings → Windows face sign-in → Link / update account**. Select **Local account** and your Windows username, or **Microsoft account** and your account email. Enter the **account password**, not a Windows Hello PIN. Passwordless-only accounts need a usable password for this implementation. Lock Windows and choose **Sign-in options → Viso Face**, then scan and blink when prompted.
+Run Viso normally, save a five-angle camera enrollment, then use **Settings → Windows face sign-in → Link / update account**. Select **Local account** and your Windows username, or **Microsoft account** and your account email. Enter the **account password**, not a Windows Hello PIN. Passwordless-only accounts need a usable password for this implementation. Lock Windows and choose **Sign-in options → Viso Face**. Scanning starts on selection; blink when prompted.
 
 [Full setup, password updates, removal, and validation status](docs/windows-signin.md).
 
@@ -82,7 +93,7 @@ Run Viso normally, save a five-angle camera enrollment, then use **Settings → 
 
 1. In **Your face**, enter a profile name. **Start camera** previews your camera; **Begin enrollment** also starts it automatically.
 2. Follow the five prompts: center, your left, your right, chin up, chin down. The preview is mirrored, and the ring tracks your measured head direction.
-3. Hold each requested angle briefly with both eyes open. Viso averages the stable frames and captures automatically. Return to center when prompted. **Cancel** or **Escape** discards the unfinished sequence.
+3. Turn gently in the requested direction, then pause briefly with both eyes open. Broad acceptance regions replace precise alignment; Viso averages the frames and captures automatically. Look roughly toward center when prompted. **Cancel** or **Escape** discards the unfinished sequence.
 4. Open **Unlock test**, then **Test face unlock**. Look at the camera, **blink both eyes when prompted**, then reopen them. The simulator unlocks only after it confirms your eyes are open again.
 5. Start another test to repeat. Every attempt needs a new blink. The camera stops after completion, when changing pages, when minimizing, on Windows session lock, and when closing Viso.
 

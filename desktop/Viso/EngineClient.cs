@@ -33,6 +33,7 @@ namespace Viso
         private readonly StreamWriter input;
         private readonly object gate = new object();
         private readonly Dictionary<int, TaskCompletionSource<Dictionary<string, object>>> pending = new Dictionary<int, TaskCompletionSource<Dictionary<string, object>>>();
+        private readonly TaskCompletionSource<bool> models = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         private int sequence;
         private bool disposed;
         public event Action<Dictionary<string, object>> Event;
@@ -63,7 +64,10 @@ namespace Viso
                 while ((line = await process.StandardOutput.ReadLineAsync().ConfigureAwait(false)) != null)
                 {
                     var message = Json.Decode(line);
-                    if (message.Get("event") != null) { var handler = Event; if (handler != null) handler(message); continue; }
+                    if (message.Get("event") != null) {
+                        if (message.Text("event") == "engine_ready") models.TrySetResult(true);
+                        var handler = Event; if (handler != null) handler(message); continue;
+                    }
                     int id = Convert.ToInt32(message.Get("id"));
                     TaskCompletionSource<Dictionary<string, object>> completion;
                     lock (gate) { if (!pending.TryGetValue(id, out completion)) continue; pending.Remove(id); }
@@ -77,9 +81,18 @@ namespace Viso
 
         private void FailPending(string message)
         {
+            models.TrySetException(new IOException(message));
             lock (gate) { foreach (var item in pending.Values) item.TrySetException(new IOException(message)); pending.Clear(); }
             var handler = Event;
             if (!disposed && handler != null) handler(Json.Data("event", "engine_error", "message", message));
+        }
+
+        public async Task WaitForModels()
+        {
+            if (await Task.WhenAny(models.Task, Task.Delay(30000)) != models.Task) {
+                Dispose(); throw new TimeoutException("Recognition models took too long to load. Restart Viso.");
+            }
+            await models.Task;
         }
 
         public async Task<Dictionary<string, object>> Send(string command, Dictionary<string, object> data = null)
@@ -109,6 +122,7 @@ namespace Viso
             {
                 if (disposed) return;
                 disposed = true;
+                models.TrySetCanceled();
                 try { input.WriteLine("{\"command\":\"shutdown\"}"); input.Close(); } catch { }
                 foreach (var item in pending.Values) item.TrySetCanceled();
                 pending.Clear();
