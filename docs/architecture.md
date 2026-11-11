@@ -1,5 +1,7 @@
 # Architecture
 
+[← Documentation](README.md) · [Security & privacy](security.md) · [Development](development.md)
+
 ## Current: native Windows application
 
 ```text
@@ -43,7 +45,9 @@ VisoSignInService.exe (LocalSystem, Program Files)
 
 `signin/Provider` implements V2 user-associated tiles for local and personal Microsoft accounts, for logon and workstation unlock. Linked account-record presence is a default-selection hint; the service still validates the full account binding. Tile selection starts one background scan. A message-only window dispatches status/prompt callbacks on LogonUI's apartment, and only an accepted credential triggers `CredentialsChanged` plus default auto-serialization. Cancellation invalidates generation-tagged pending UI updates and pipe work. Failed scans do not automatically restart until a new selection; the arrow remains an explicit retry. Local credentials use `CredProtectW` and a packed `KERB_INTERACTIVE_UNLOCK_LOGON`; Microsoft accounts use `CRED_PACK_PROTECTED_CREDENTIALS | CRED_PACK_ID_PROVIDER_CREDENTIALS`. Windows' Negotiate authentication package makes the final authentication decision.
 
-The service's standby process verifies and loads models before receiving a profile, without opening a camera. It is used for exactly one attempt and destroyed afterward. A replacement is warmed after the previous worker is disposed. One camera semaphore, per-attempt deadlines, Job containment, and vault revision checks still apply. Standby initialization failures are retried on demand.
+The service's standby process verifies and loads models before receiving a profile, without opening a camera. It is used for exactly one attempt and destroyed afterward. A replacement is warmed after the previous worker is disposed, on session lock and on interactive resume. Unused residency expires after 60 seconds; failed initialization, suspend and service disposal retire it immediately. A monotonic lease deadline prevents an old queued timer callback from retiring a new worker. One camera semaphore, cancellable per-attempt deadlines, Job containment, and vault revision checks still apply.
+
+The provider registers suspend/resume and `GUID_SESSION_DISPLAY_STATUS` notifications on its UI-thread message window. Suspend/display-off revokes credentials, worker generations and queued callbacks. Interactive resume/display return rearms a selected tile once; maintenance wake alone and repeated notifications do not reopen the camera. Service power generations and pre-suspend pipe/Job closure prevent earlier verification from releasing credentials after wake. The native desktop cancels operations and clears preview/timer state on power changes.
 
 The SCM service PID authenticates the pipe server; pipe impersonation identifies clients. Only a SYSTEM `System32\LogonUI.exe` caller in an interactive session may request credentials. Account linking validates the password and requires the resulting SID to match the caller. The service accepts no supplied frames or success claims. Prompt acknowledgment comes from LogonUI, and the worker discards pre-prompt samples through the existing native pipeline.
 
@@ -54,6 +58,8 @@ Machine-scope DPAPI supports pre-login decryption. Administrator/SYSTEM-only fil
 ### Native motion
 
 One restrained motion language: cubic ease-out, 90–180 ms input feedback, 150 ms measured head tracking, 300 ms captured sectors, 320 ms page entrances, and a 420 ms completion ring. Only active enrollment/scanning attaches the ring's render callback. Disabling animations stops active timelines and resolves ring properties to their target values. Windows `ClientAreaAnimation` and the in-app reduced-motion preference both apply. Motion presents backend state; it never supplies pose, eye, identity, or completion evidence.
+
+The native ring uses eight sectors: first-pass views fill blue and second-pass views turn green. Pen/brush resources are frozen and reused across renders, rebuilding only for a changed drawing size. Visual progress is finite and bounded, and rendered intensity is clamped before palette lookup: identity frame counts may exceed the minimum while waiting for their time gate, without overrunning drawing resources or altering verification state. Preview polling runs only while the camera is active. IPC cancels its unused 30-second timeout timer after every completed reply/model-readiness wait.
 
 ## Earlier browser recognition sandbox
 
@@ -72,19 +78,19 @@ Python sandbox service (one serialized inference/state owner)
   ├─ SFace ONNX: alignment → 128 floats → L2 normalization
   ├─ Cosine similarity against the centroid and individual enrollment views
   ├─ MediaPipe Face Landmarker: eye blendshapes + eye geometry + head rotation
-  ├─ Server-owned five-pose enrollment, stable hold before capture
+   ├─ Current server-owned circular enrollment (historical UI assumes five poses)
   ├─ Attempt: identity → blink → reopen → open-eye confirmation → unlocked
   └─ Current-user DPAPI template storage, or memory-only storage
 ```
 
-OpenCV's CPU DNN backend executes the ONNX models. The native app reuses the tested Python recognition implementation directly through its worker; React is not part of the desktop runtime. The earlier browser source and HTTP tests remain available as development references.
+OpenCV's CPU DNN backend executes the ONNX models. The native app reuses the tested Python recognition implementation directly through its worker; React is not part of the desktop runtime. The [earlier browser source on `test`](https://github.com/notg0d/viso/blob/test/experiments/browser/README.md) and HTTP tests remain development references, excluded from `main`. The HTTP host serves `experiments/browser/dist/`; the archived guidance has not been ported to current circular enrollment.
 
-The enrollment ring and light sweeps are a React/CSS adaptation of Glance's MIT-licensed onboarding animation. Source revision and attribution are in `THIRD_PARTY_NOTICES.md`.
+The enrollment ring and light sweeps are a React/CSS adaptation of Glance's MIT-licensed onboarding animation. Source revision and attribution are in [third-party notices](../THIRD_PARTY_NOTICES.md).
 
 ## Recognition behavior
 
-- Enrollment: 5 guided camera poses or 1–5 image samples. Every sample must contain exactly one usable face with both eyes open.
-- Every pair of enrollment samples must have cosine similarity of at least 0.50. The profile retains their normalized mean and up to five individual view embeddings. Matching uses the greater of centroid similarity and the second-highest view similarity: the multi-view path requires two enrolled views to independently pass the selected threshold. A single unusually high view score cannot override a failed centroid.
+- Enrollment: neutral plus two eight-direction circuits (17 averaged camera views, at least 51 distinct observations), or 1–5 image samples. Every sample must contain exactly one usable face with both eyes open.
+- Every pair of enrollment samples must have cosine similarity of at least 0.50. The profile retains their normalized mean and individual view embeddings. A contiguous float32 matcher is compiled once per profile. Circular profiles reduce repeated views to one maximum score per pose group; the multi-view override requires two distinct groups. Legacy profiles retain their centroid/second-highest-view rule. A single unusually high view score cannot override a failed centroid.
 - Default match threshold: 0.55, adjustable between 0.35 and 0.90 in the test bench.
 - Camera attempts need 3 open-eye identity matches over at least 150 ms, followed by a fresh blink after the prompt. One sampled bilateral closure suffices, including a brief blink immediately after the prompt. Both eyes must reopen within 0.8 seconds, then remain open for a second confirmation at least 120 ms later.
 - Identity is measured on every initial, closed/uncertain-eye, reopening, recovery, and confirmation frame. While waiting with both eyes open, SFace results can be reused for less than 200 ms when the face-box overlap is at least 0.80 IoU with the previous tracked box and at least 0.65 with the last fully matched box. This follows small consecutive movements without moving the identity anchor or extending its deadline. Face detection, quality gates, and eye measurements still run on every sample. The API marks these fast frames with `identity_checked: false`; the UI labels their similarity as a recent match.
@@ -120,7 +126,7 @@ Unlock references train only on fully matched strict-open frames in the initial 
 
 ### Capture timing
 
-The native capture thread retains up to six immutable raw BGR frames at camera rate (30 fps requested). Only the desktop preview is encoded: at most 15 Hz, a 720-pixel long edge, JPEG quality 80. Sign-in disables preview encoding entirely. Recognition uses the original frame up to a 960-pixel long edge, and repeated polling of one captured frame cannot advance enrollment. Native timestamps use the same process monotonic clock as the attempt.
+The native capture thread retains up to six immutable raw BGR frames at the driver's negotiated cadence, sampling at up to 40 Hz. Only the desktop preview is encoded: at most 15 Hz, a 720-pixel long edge, JPEG quality 80. Sign-in disables preview encoding entirely. Recognition uses the original frame up to a 960-pixel long edge, and repeated polling of one captured frame cannot advance enrollment. Native timestamps use the same process monotonic clock as the attempt. Stop drops retained images before waiting on the driver; a late read cannot repopulate the stopped queue.
 
 `CameraSampler` uses video-frame callbacks and a reused JPEG canvas independently of HTTP requests. Sampling targets 20 Hz, retaining at most six recent frames; camera frames older than 450 ms are discarded before sending. Batches contain images and monotonic millisecond offsets relative to starting the attempt. The server validates finite, strictly increasing offsets, a six-frame limit, and a receipt-time window of -250 to +750 ms to allow initial request transit. Blink durations use capture time rather than the speed at which a buffered batch is processed. Wall-clock expiry remains server-enforced.
 
@@ -128,21 +134,23 @@ The backend stops a batch when it first issues a blink prompt. A challenge count
 
 ### Guided enrollment
 
-The backend chooses center → subject's left → subject's right → up → down, requiring a brief return to neutral between directional captures. Positive yaw is the subject's left, positive pitch is chin down; only the preview is mirrored. The neutral hold's median pose establishes a pitch/yaw baseline. Turns target 14° ±8° yaw with ±13° pitch; up/down target 10° ±6° pitch with ±13° yaw, relative to neutral. Roll may vary within ±18°. Three observations spanning at least 240 ms, with pose drift ≤9°, are required for a capture. Recenter accepts ±9° yaw/pitch, with two observations across 120 ms. Each pose stores the normalized average embedding of its hold instead of only the last frame. Identity consistency is checked against both previous poses and frames in the current hold at ≥0.50 cosine similarity. Eyes must still be open, and a neutral pose cannot fill a directional sample.
+The backend calibrates center, then runs left → up-left → up → up-right → right → down-right → down → down-left twice, requiring recentering only between circuits. Positive yaw is the subject's left, positive pitch is chin down; only the preview is mirrored. The neutral hold's median pose establishes a pitch/yaw baseline. Cardinal targets use ±14° yaw or ±10° pitch, diagonals ±10° yaw/±7° pitch. Bounded rectangular windows and separate normalized angular sectors reject neutral/cardinal substitutes for diagonals. Roll remains within ±18°. Three distinct observations spanning at least 240 ms, with pose drift ≤9°, are required per averaged view. Recenter accepts ±9° yaw/pitch, with two observations across 120 ms. Identity consistency is checked against previous views and current-hold frames at ≥0.50 cosine similarity. Eyes must still be open.
 
-The 80-tick ring shows a median-of-three measured pose relative to neutral with a six-tick-wide live turn band. Four directional sectors light only after the server captures the matching angle; center pulses the whole ring. Layered, pointer-transparent light ribbons travel toward the requested direction after a 360 ms delay. A pose change, recenter, cancellation, or completion removes the previous sweep. Ticks merge into a solid ring on completion, shown for 1.1 seconds after saving. Reduced-motion settings keep static guidance and disable animation. Validation uses actual individual poses, not smoothed display values or animation progress. Feedback distinguishes chin movement, left/right correction, recentering, and unwanted sideways tilt. Wrong poses/faces or closed eyes reset the current hold. A 90-second timeout or cancellation discards unfinished samples. Only the explicit finish endpoint writes the profile once all five poses are complete.
+The native 80-tick ring shows a median-of-three measured pose relative to neutral and a directional glow, with eight sectors colored from captured server views. Reduced motion keeps static pose/progress/text feedback. Validation uses actual poses, not smoothed display values or animation progress. Wrong poses/faces or closed eyes reset the current hold. A 90-second timeout or cancellation discards unfinished samples. Only the explicit finish endpoint writes a profile once all 17 views are complete. The earlier browser ring remains a historical five-pose UI, not the circular-enrollment frontend.
 
-The SFace model ID and 128-dimensional embedding format are unchanged, so old persistent profiles still use their original centroid score. Re-enrollment is required to retain individual views, which previous versions discarded. New guided profiles also record pose labels/angles in encrypted metadata. The public profile exposes `matching: "multi-view"` or `"centroid"`.
+The SFace model ID and 128-dimensional embedding format are unchanged. Legacy centroid/five-view profiles remain supported; re-enrollment is required for new circular coverage. New guided profiles record `enrollment_version: "circular-v1"`, ordered `template_groups`, per-pose observation counts and total observations. Loading/link validation rejects incomplete/unknown formats. The public profile exposes `matching: "multi-view"` or `"centroid"`, never vectors.
 
 ## Local data and transport
 
-The service binds only to loopback. Host/origin validation, no cross-origin response headers, a per-process mutation token, bounded requests, and a content security policy keep the development API scoped to the local UI. It is not a privileged authentication API or a hostile-local-process boundary.
+The optional HTTP sandbox host binds only to loopback. Host/origin validation, no cross-origin response headers, a per-process mutation token, bounded requests, and a content security policy keep the development API scoped to the local UI. It is not the LocalSystem sign-in service, a privileged authentication API, or a hostile-local-process boundary.
 
-Frames and embeddings are not included in API logs. Loaded browser images remain in page memory until cleared or the page closes. The service stores profile metadata, the centroid, and up to five enrollment-view embeddings. All vectors are excluded from public API responses and encrypted together under DPAPI in persistent mode. Session-event export includes timestamps and decision messages, never face vectors or images.
+Frames and embeddings are not included in API logs. Loaded browser images remain in page memory until cleared or the page closes. The backend stores profile metadata, the centroid, and up to 17 circular camera-view embeddings (or up to five legacy/image views). All vectors are excluded from public API responses and encrypted together under DPAPI in persistent mode. Session-event export includes timestamps and decision messages, never face vectors or images.
 
 Persistent sandbox templates use `CryptProtectData` with current-user scope. DPAPI protects data at rest; other processes running as that Windows user are not excluded. On non-Windows systems, or with `--ephemeral`, enrollment is memory-only. A corrupted or incompatible profile is retained until explicitly reset.
 
-## API surface
+## Legacy HTTP API surface
+
+This API belongs to the optional browser development host, not the desktop's private command pipe or the privileged sign-in protocol.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -150,7 +158,7 @@ Persistent sandbox templates use `CryptProtectData` with current-user scope. DPA
 | POST | `/api/enroll` | Image-lab enrollment `{name, source: "image", images}` |
 | POST | `/api/enrollments` | Start guided camera enrollment `{name}` |
 | POST | `/api/enrollments/{id}/frame` | Measure `{image}` and capture only the requested stable pose |
-| POST | `/api/enrollments/{id}/finish` | Save a completed five-angle profile |
+| POST | `/api/enrollments/{id}/finish` | Save a completed two-circle profile |
 | DELETE | `/api/enrollments/{id}` | Discard unfinished enrollment |
 | DELETE | `/api/profile` | Delete the profile and invalidate attempts |
 | POST | `/api/analyze` | Inspect `{image}` without an unlock decision |
@@ -163,8 +171,8 @@ Mutating requests require the `X-Viso-Token` from `/api/status`. Image values ar
 
 ## Remaining Windows milestones
 
-1. **Integrated VM validation:** real local/MSA linking, LogonUI enumeration, session-0 camera access, lock/unlock, cold boot, multi-user behavior, and install/update/removal. Component tests currently run without registration.
+1. **Integrated VM validation:** real local/MSA linking, LogonUI enumeration, session-0 camera access, lock/unlock, cold boot, multi-user behavior, and install/update/removal across supported systems. The development-machine 0.8.0 upgrade passed installed file/registration checks and automatic LocalSystem startup; actual current-build authentication and physical sleep remain untested. Component tests themselves do not register a provider.
 2. **Liveness evaluation:** labeled live/photo/screen/video samples and measured error rates; evaluate stronger presentation-attack detection and randomized challenges.
 3. **Distribution hardening:** signed binaries, installer/update lifecycle exercised on supported Windows versions, and driver compatibility results.
 
-Use a rebootable Windows VM with a snapshot and camera passthrough for integrated testing. Windows Sandbox can exercise the desktop UI but is not a substitute for reboot/logon-provider tests. [Validation coverage](https://github.com/notg0d/viso/blob/test/docs/testing.md#windows-sign-in-validation) and [0.7 measurements](performance.md) identify what has and has not run.
+Use a rebootable Windows VM with a snapshot and camera passthrough for integrated testing. Windows Sandbox can exercise the desktop UI but is not a substitute for reboot/logon-provider tests. [Validation coverage](testing.md#windows-sign-in-validation) and [measured performance](performance.md) identify what has and has not run.

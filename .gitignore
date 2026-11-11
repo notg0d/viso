@@ -18,14 +18,17 @@ playwright-report/
 desktop/bin/
 signin/bin/
 
-# Validation sources and the legacy browser bench are maintained on `test`.
+# Test-only sources/tools and the historical browser bench stay off `main`.
 backend/tests/
 signin/Tests/
 tests/
 desktop/Viso/RenderingChecks.cs
-docs/testing.md
 scripts/download_test_fixtures.py
 scripts/test*.ps1
+scripts/benchmark_matcher.py
+scripts/check-docs.py
+/experiments/browser/
+# Ignore leftover root files from the former browser layout as well.
 src/
 /index.html
 /package.json

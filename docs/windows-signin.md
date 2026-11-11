@@ -1,8 +1,15 @@
 # Windows sign-in: local and Microsoft accounts
 
+[← Documentation](README.md) · [Security & privacy](security.md) · [Troubleshooting](troubleshooting.md#windows-sign-in)
+
+> [!WARNING]
+> This prototype changes Windows sign-in and stores a protected account-password snapshot. Use a recoverable test environment, keep ordinary password/PIN access available, and read the update/removal instructions before installation. Automated checks are not authentication certification.
+
 Viso includes an x64 V2 Credential Provider and a `VisoSignIn` Windows service. The provider submits a Windows credential after the service matches a face, prompts for a fresh blink, and confirms both eyes reopened. Windows performs the account authentication.
 
-**Status:** the existing installed account-linking/sign-in flow has been reported working on a local Windows installation. The 0.7 automatic-selection and prewarming changes pass component checks; the new build still needs interactive LogonUI, reboot, and multi-user validation on the target machine.
+**Status:** the user-authorized 0.8.0 upgrade is installed on the development machine. Installed file hashes, retained account links, x64 provider registration, automatic LocalSystem service startup and 25 installed-runtime checks passed. Earlier automatic local-account sign-in was confirmed, but actual unlock and physical sleep/hibernate/Modern Standby have not been tested with 0.8.0. Reboot, Microsoft-account and multi-user validation remain necessary.
+
+The separate **desktop 0.8.1 hotfix** fixes an Unlock test ring-rendering crash. It does not change the installed sign-in binaries/runtime, account links or face enrollment; another administrator reinstall is not needed for this desktop-only fix.
 
 ## Account support
 
@@ -24,7 +31,7 @@ Requirements: x64 Windows 10/11, .NET Framework 4.8, the Python dependencies/mod
 .\scripts\build-signin.ps1
 ```
 
-Automated build/runtime checks and fixtures are maintained on the [test branch](https://github.com/notg0d/viso/tree/test).
+Automated build/runtime checks and fixtures are maintained on `test`; see [validation commands and coverage](testing.md#windows-sign-in-validation).
 
 Then, from **64-bit administrator PowerShell** in this project:
 
@@ -38,18 +45,20 @@ The installer creates protected directories atomically. Retained `%ProgramData%\
 
 ## Link and use
 
-1. Launch `scripts/start.ps1` without `-Ephemeral` and save a five-angle **camera** enrollment. Photo-lab and memory-only enrollment cannot enable Windows sign-in.
+1. Launch `scripts/start.ps1` without `-Ephemeral` and save a two-circle **camera** enrollment. Photo-lab and memory-only enrollment cannot enable Windows sign-in. Existing complete five-view profiles still work, but re-enroll to acquire the new direction coverage.
 2. In **Settings**, select the desired camera. Under **Windows face sign-in**, choose the account type, enter its username/email and password, and click **Link / update account**.
 3. Use **Refresh status** to confirm the account is linked. Password fields clear after a link attempt, when leaving Settings, on minimize/session lock, and on close.
 4. Lock Windows. Choose **Sign-in options → Viso Face**. Selection starts the scan automatically. Look ahead with eyes open, blink after the displayed prompt, and reopen both eyes. After a failure, select the arrow to retry or switch sign-in options.
 
-The service preloads models in one unused, Job-contained Python worker at startup and after each scan. This standby worker receives no profile and opens no camera. A scan consumes it once and destroys it on success, error, cancellation, or timeout; no profile, eye calibration, or camera frame carries into the next worker. Only one scan can hold the camera at a time. The desktop stops its camera on session lock. The sign-in match threshold is fixed at **0.55**; the desktop threshold slider affects simulator tests only. Recognition attempts expire after 20 seconds, with an outer 45-second worker deadline covering initialization and IPC. The provider accepts a released credential once, for at most 10 seconds.
+The service preloads models in one unused, Job-contained Python worker at startup, session lock, interactive resume and after each scan. This standby worker receives no profile and opens no camera. It expires after **60 seconds** unused or immediately on failed initialization/suspend/service disposal. A scan consumes it once and destroys it on success, error, cancellation, or timeout; no profile, eye calibration, or camera frame carries into the next worker. An expired standby means the next attempt loads models cold. Only one scan can hold the camera at a time. The desktop stops its camera on session lock and power changes. The sign-in match threshold is fixed at **0.55**; the desktop threshold slider affects simulator tests only. Recognition attempts expire after 20 seconds, with an outer 45-second worker deadline covering initialization and IPC. The provider accepts a released credential once, for at most 10 seconds.
 
 ### Default selection and automatic scanning
 
 Viso supplies a default tile for a linked account. Windows gives preference to the last successfully used provider, subject to device policy and its own selection rules. Choose Viso and complete one sign-in; subsequent locks can select that tile automatically. Viso does not force a machine-wide provider policy. Automatic scanning begins when the credential tile is selected on the sign-in screen, not behind the wallpaper-only lock screen.
 
 Selection launches background verification; a message-only window delivers status/prompt callbacks on LogonUI's UI thread. Only a fresh accepted result asks Windows to serialize automatically. Failed scans wait for a manual retry rather than repeatedly reopening the camera. Deselection, unadvising, and disconnect cancel pending work. Windows may still impose its own sign-in confirmation in some scenarios.
+
+The same window registers suspend/resume and session-display notifications. Suspend/display-off clears pending scans and accepted credentials. Interactive resume or display return rearms a still-selected tile **once**, even if Windows never calls `SetSelected` again. Automatic maintenance wake alone does not open the camera; repeated wake/display notifications do not loop retries. The service closes pre-suspend pipes/workers and rejects results from older power generations. This is covered by synthetic notification tests, not yet a physical long-sleep guarantee.
 
 If recognition, the camera, the service, or a saved password fails, select your ordinary Windows password/PIN option. A failed stored password must be updated in Viso after signing in normally.
 
@@ -83,7 +92,7 @@ For an upgrade that retains account links:
 
 Retained records work only on the same Windows installation. A changed profile format/model may require relinking.
 
-Launching or rebuilding the desktop app alone does not update `%ProgramFiles%\Viso`. The lock screen runs the separately installed service, provider DLL, and private backend. Apply the sign-in update as well to receive automatic scanning, model prewarming, and the 0.7.1 camera-start fix.
+Launching or rebuilding the desktop app alone does not update `%ProgramFiles%\Viso`. The lock screen runs the separately installed service, provider DLL, and private backend. Apply the sign-in update as well to receive the 0.8 wake and resource fixes. After circular re-enrollment, **Link / update account** again: retained links keep their old profile snapshot until explicitly replaced. Building/tests do not install anything.
 
 ### Provider diagnostics
 
@@ -96,4 +105,4 @@ For callback/automatic-submit troubleshooting, administrator PowerShell can set 
 - The bounded UTF-8 pipe protocol accepts no client image frames or claimed biometric success. The private worker receives profile/camera data, never the account password. Python runs with `-I -B` and a restricted executable search path; a kill-on-close Job Object contains it.
 - Passwords are not logged or exported. Byte buffers and native password strings are cleared after use; .NET's immutable strings mean guaranteed immediate erasure of every managed-memory copy is not claimed.
 
-This remains an experimental RGB-camera implementation. Blink checks have functional coverage but do not establish replay/generated-video resistance or Windows Hello certification. See [the remaining integrated tests](https://github.com/notg0d/viso/blob/test/docs/testing.md#windows-sign-in-validation).
+This remains an experimental RGB-camera implementation. Blink checks have functional coverage but do not establish replay/generated-video resistance or Windows Hello certification. See [the remaining integrated tests](testing.md#windows-sign-in-validation).
