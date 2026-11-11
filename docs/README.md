@@ -2,7 +2,7 @@
 
 [← Project overview](../README.md)
 
-Start with the desktop. Install Windows sign-in only after reading its separate requirements and recovery guidance.
+Start with the desktop. The all-in-one installer includes Windows sign-in; read its requirements and recovery guidance before approving installation.
 
 ## Use Viso
 
@@ -10,6 +10,7 @@ Start with the desktop. Install Windows sign-in only after reading its separate 
 | :--- | :--- |
 | [Getting started](getting-started.md) | Requirements, setup, two-circle enrollment, unlock simulator, photo lab, and controls. |
 | [Windows releases](releases.md) | Runnable ZIP, checksum verification, requirements, local-state updates, and artifact builds. |
+| [Complete Windows installer](installer.md) | All-in-one desktop/runtime/models/sign-in Setup.exe, storage, upgrades, removal and recovery. |
 | [Windows sign-in](windows-signin.md) | Account support, administrator installation, explicit linking, upgrades, disable/removal, and diagnostics. |
 | [Troubleshooting](troubleshooting.md) | Camera, models, builds, profiles, blink confirmation, and sign-in failures. |
 
@@ -39,6 +40,6 @@ Start with the desktop. Install Windows sign-in only after reading its separate 
 
 ## Read the status correctly
 
-The latest recorded snapshot is **2026-11-11**: desktop **0.8.1**, separately installed sign-in **0.8.0** on the development machine. The desktop has an [experimental Windows ZIP release](releases.md), not a sign-in installer or general certification. Changes were developed/validated on `test`; production source and documentation are synchronized to `main`. Regression sources, runners/fixtures, benchmarks, and the historical browser bench remain **test-only**.
+The latest recorded snapshot is **2026-11-11**: desktop/complete-installer source **0.8.2**, with the separately authorized **`ac7ce8b` source sign-in update** installed on the development machine. The public [v0.8.1 desktop-only ZIP](releases.md) remains unchanged; the [all-in-one Setup.exe](installer.md) has not been published or deployed. None of these is general authentication certification. Changes are developed/validated on `test`; only production source/documentation is promoted to `main`. Regression sources, runners/fixtures, benchmarks, and the historical browser bench remain **test-only**.
 
 Automated checks use synthetic state, temporary storage, and public portrait fixtures; they do not prove physical-camera accuracy or replay resistance. Earlier successful local-account unlocks do not validate the current sign-in build. See the [current evidence and remaining gates](testing.md).

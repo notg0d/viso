@@ -4,12 +4,20 @@
 
 The 0.8.1 desktop has an experimental Windows ZIP release; earlier entries describe development builds. Work is validated on `test`, then production source/documentation is synchronized to `main` without test sources, runners/fixtures, benchmarks, or the historical browser bench. Desktop and separately installed sign-in components can have different versions.
 
-## Unreleased — camera compatibility and diagnostics
+## 0.8.2 — complete Windows installer (not yet published)
+
+- All-in-one Inno Setup executable includes the desktop, private Python/dependencies, pinned models/notices and Windows sign-in provider/service. No end-user source/Python/compiler setup.
+- Protected manifest-verified staging, fixed Program Files destination, retained encrypted account links, directory-swap upgrade backup/recovery, shortcuts and Installed apps uninstall support. Password/PIN providers remain untouched; experimental sign-in requires explicit consent.
+- Installed desktop uses per-Windows-user `%LOCALAPPDATA%\Viso` for enrollment/preferences and account-link import. Source/portable `.viso` locations remain unchanged. Setup does not enroll, collect a password, link an account or open the camera.
+- Uninstall offers account-link retention, keeps desktop enrollment and retires locked payload files at reboot. Reinstall is blocked while Viso file deletion is pending. Build-only Inno Setup is not an application dependency. [Full installer guide](docs/installer.md).
+- Building this installer does not install/publish it or modify the existing immutable v0.8.1 release. Clean-machine install/upgrade/uninstall/reboot and current-build physical authentication remain release gates.
+
+### Camera compatibility and diagnostics
 
 - [Pinned source review of Windows Face Unlock](docs/windows-face-unlock-review.md), including its enrollment/ArcFace/MiniFASNet flow, scheduled-task lifecycle, pipe trust boundary and updater limitations.
 - Serial startup fallback: negotiated DirectShow → default DirectShow → default Media Foundation, with actual-frame validation, release-before-reopen and one shared deadline. No streaming reconnect, parallel owners or blink-rule change.
 - Backend/first-frame timing in Activity; explicit JSON export adds allowlisted runtime/camera metadata, without images/vectors, credentials, identifiers or raw diagnostic exceptions. Old-generation camera errors cannot cancel a newer session.
-- No new dependencies, automatic locking, upstream code copying, installation, enrollment/account-link changes or release replacement. Published v0.8.1 and installed sign-in 0.8.0 remain unchanged; these additions are source-only.
+- No new recognition dependencies, automatic locking, upstream code copying or blink-rule changes. The user-authorized local source update `ac7ce8b` was subsequently installed with existing enrollment/links retained; the published v0.8.1 ZIP remains unchanged.
 - Validation: 135 Python tests, native smoke with 63 raster/resource cases and diagnostic/stale-event assertions, provider lifecycle tests, 59 service/protocol checks, 11 deployment checks and 25 packaged shared-runtime checks. Physical fallback/multi-camera mapping remain unverified. [Evidence](docs/testing.md#unreleased-camera-compatibility-and-diagnostics).
 
 ## Documentation and repository organization — 2026-11-11

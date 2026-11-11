@@ -70,7 +70,7 @@ Diagnostic metadata excludes device names/paths, raw driver/model exceptions, us
 
 See [current automated checks and limitations](testing.md#unreleased-camera-compatibility-and-diagnostics). Synthetic drivers test actual `Camera` code without physical hardware. Inference, prompt/eye/security, native rendering and packaged shared-runtime gates remain required. Physical fallback, sleep, reboot, multi-camera mapping and current-build Windows authentication are not established by these tests.
 
-These are **unreleased source improvements**, developed on `test` before production promotion. The published [v0.8.1 ZIP](releases.md) remains immutable and **does not contain this update**. Installed **0.8.0** sign-in components, enrollment and encrypted account links are unchanged; a future deliberate sign-in upgrade is needed to deploy the shared camera change there.
+These are **unreleased distribution improvements**, developed on `test` before production promotion. The published [v0.8.1 ZIP](releases.md) remains immutable and **does not contain this update**. The user subsequently authorized the `ac7ce8b` source sign-in upgrade: all 3,219 payload hashes, retained enrollment/encrypted links, unchanged non-Viso registrations/filters and 25 installed-runtime checks passed. This source deployment is separate from the new [0.8.2 complete installer](installer.md), which has not been installed or published. Current-build physical camera/unlock and installer lifecycle gates remain open.
 
 [wizard]: https://github.com/caochitam/windows-face-unlock/blob/beddcc96b112b393a93062e7d159b2f924008b95/presence_monitor/enroll_gui.py
 [enrollment]: https://github.com/caochitam/windows-face-unlock/blob/beddcc96b112b393a93062e7d159b2f924008b95/face_service/recognizer.py#L26-L62
