@@ -89,10 +89,14 @@ namespace Viso
 
         public async Task WaitForModels()
         {
-            if (await Task.WhenAny(models.Task, Task.Delay(30000)) != models.Task) {
-                Dispose(); throw new TimeoutException("Recognition models took too long to load. Restart Viso.");
+            using (var deadline = new CancellationTokenSource()) {
+                try {
+                    if (await Task.WhenAny(models.Task, Task.Delay(30000, deadline.Token)) != models.Task) {
+                        Dispose(); throw new TimeoutException("Recognition models took too long to load. Restart Viso.");
+                    }
+                    await models.Task;
+                } finally { deadline.Cancel(); }
             }
-            await models.Task;
         }
 
         public async Task<Dictionary<string, object>> Send(string command, Dictionary<string, object> data = null)
@@ -107,13 +111,15 @@ namespace Viso
                 try { input.WriteLine(Json.Encode(Json.Data("id", id, "command", command, "data", data ?? Json.Data()))); }
                 catch { pending.Remove(id); throw; }
             }
-            if (await Task.WhenAny(completion.Task, Task.Delay(30000)) != completion.Task)
-            {
-                // A timed-out mutation must not silently complete after the UI moves on.
-                Dispose();
-                throw new TimeoutException("Recognition engine timed out. Restart Viso.");
+            using (var deadline = new CancellationTokenSource()) {
+                try {
+                    if (await Task.WhenAny(completion.Task, Task.Delay(30000, deadline.Token)) != completion.Task) {
+                        // A timed-out mutation must not silently complete later.
+                        Dispose(); throw new TimeoutException("Recognition engine timed out. Restart Viso.");
+                    }
+                    return await completion.Task;
+                } finally { deadline.Cancel(); }
             }
-            return await completion.Task;
         }
 
         public void Dispose()

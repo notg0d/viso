@@ -60,6 +60,8 @@ class Camera:
                 last_preview = last_sample = 0
                 while not self.stopped.is_set():
                     ok, image = device.read()
+                    if self.stopped.is_set():
+                        break
                     now = monotonic()
                     if not ok or image is None:
                         raise RuntimeError("The camera disconnected. Reconnect it and try again.")
@@ -75,6 +77,8 @@ class Camera:
                     # transport, never an intermediate inference representation.
                     image.setflags(write=False)
                     with self.lock:
+                        if self.stopped.is_set():
+                            break
                         self.latest = (now, image)
                         self.frames.append(self.latest)
                     opened.set()
@@ -85,7 +89,7 @@ class Camera:
                             scale = 720 / max(image.shape[:2])
                             view = cv2.resize(image, (round(image.shape[1] * scale), round(image.shape[0] * scale)))
                         ok, jpeg = cv2.imencode(".jpg", view, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                        if ok:
+                        if ok and not self.stopped.is_set():
                             self.emit({"event": "preview", "image": base64.b64encode(jpeg).decode("ascii"), "generation": generation})
             except Exception as error:
                 self.error = str(error)
@@ -106,6 +110,10 @@ class Camera:
 
     def stop(self):
         self.stopped.set()
+        # Drop retained camera images immediately, even if a driver blocks join.
+        with self.lock:
+            self.latest = None
+            self.frames.clear()
         if self.thread is not None:
             self.thread.join(timeout=3)
             if self.thread.is_alive():

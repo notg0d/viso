@@ -28,7 +28,7 @@ class InputError(ValueError):
 def normalized(vector: np.ndarray) -> np.ndarray:
     vector = np.asarray(vector, dtype=np.float32).reshape(-1)
     norm = float(np.linalg.norm(vector))
-    if not np.isfinite(vector).all() or norm < 1e-8:
+    if not np.isfinite(vector).all() or not np.isfinite(norm) or norm < 1e-8:
         raise InputError("Invalid face embedding.")
     return vector / norm
 
@@ -38,13 +38,41 @@ def similarity(first: np.ndarray, second: np.ndarray) -> float:
 
 
 def profile_similarity(embedding: np.ndarray, profile: dict) -> float:
-    """Use the centroid or agreement from two enrolled views, never one outlier."""
-    score = similarity(embedding, np.asarray(profile["embedding"]))
-    templates = profile.get("templates", [])
-    if len(templates) >= 2:
-        scores = sorted(similarity(embedding, np.asarray(template)) for template in templates)
-        score = max(score, scores[-2])
-    return score
+    return ProfileMatcher(profile).score(embedding)
+
+
+class ProfileMatcher:
+    """Compile normalized float32 views once; no profile-sized frame allocations.
+
+    Two repeated samples from one pose are one vote, not independent evidence.
+    Legacy profiles retain their original centroid/two-view rule.
+    """
+    def __init__(self, profile: dict):
+        self.centroid = normalized(profile["embedding"])
+        templates = profile.get("templates", [])
+        self.views = np.stack([normalized(view) for view in templates]) if len(templates) >= 2 else None
+        groups = profile.get("template_groups")
+        if groups is not None and (not isinstance(groups, list) or len(groups) != len(templates)
+                                   or any(not isinstance(group, str) for group in groups)):
+            raise InputError("Invalid enrollment pose groups.")
+        self.group_starts = None
+        if groups is not None and self.views is not None:
+            labels = {group: index for index, group in enumerate(dict.fromkeys(groups))}
+            numbers = np.asarray([labels[group] for group in groups])
+            order = np.argsort(numbers, kind="stable")
+            self.views = np.ascontiguousarray(self.views[order])
+            self.group_starts = np.flatnonzero(np.r_[True, np.diff(numbers[order]) != 0])
+
+    def score(self, embedding: np.ndarray) -> float:
+        probe = normalized(embedding)
+        score = float(np.dot(probe, self.centroid))
+        if self.views is not None:
+            scores = self.views @ probe
+            if self.group_starts is not None:
+                scores = np.maximum.reduceat(scores, self.group_starts)
+            if len(scores) >= 2:
+                score = max(score, float(np.partition(scores, -2)[-2]))
+        return float(np.clip(score, -1, 1))
 
 
 def decode_image(value: str | np.ndarray) -> np.ndarray:
@@ -119,7 +147,9 @@ class FaceEngine:
         self.attention = AttentionEngine(model_dir)
 
     def close(self):
-        self.attention.close()
+        if self.attention is not None:
+            self.attention.close()
+        self.attention = self.detector = self.recognizer = None
 
     def observe(self, image: np.ndarray, skip_recognition: Callable[[Attention, list[float]], bool] | None = None) -> Observation:
         start = perf_counter()

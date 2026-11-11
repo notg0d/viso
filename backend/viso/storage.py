@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from .recognition import MODEL_ID, normalized
+from .enrollment import validate_circular_profile
 
 
 def dpapi(data: bytes, *, decrypt: bool = False) -> bytes:
@@ -51,6 +52,8 @@ class ProfileStore:
         self.error: str | None = None
         if self.persistent and self.path.exists():
             try:
+                if self.path.stat().st_size > 131072:
+                    raise ValueError("Stored profile is too large.")
                 profile = json.loads(dpapi(self.path.read_bytes(), decrypt=True))
                 if profile.get("model_id") != MODEL_ID:
                     raise ValueError("The stored profile belongs to a different recognition model.")
@@ -60,9 +63,14 @@ class ProfileStore:
                 profile["embedding"] = normalized(embedding).tolist()
                 if "templates" in profile:
                     templates = np.asarray(profile["templates"], dtype=np.float32)
-                    if templates.shape != (profile["samples"], 128) or not 1 <= len(templates) <= 5:
+                    limit = 17 if profile.get("enrollment_version") else 5
+                    if type(profile.get("samples")) is not int or templates.shape != (profile["samples"], 128) or not 1 <= len(templates) <= limit:
                         raise ValueError("Invalid stored enrollment views.")
                     profile["templates"] = [normalized(template).tolist() for template in templates]
+                if profile.get("enrollment_version") or "template_groups" in profile:
+                    validate_circular_profile(profile)
+                    if profile.get("source") != "camera" or profile.get("guided") is not True or "templates" not in profile:
+                        raise ValueError("Invalid circular camera profile.")
                 self.profile = profile
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.error = f"Stored profile could not be opened. Reset the profile to enroll again. ({type(error).__name__})"

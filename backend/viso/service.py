@@ -6,9 +6,9 @@ from time import monotonic
 
 import numpy as np
 
-from .recognition import DEFAULT_THRESHOLD, MODEL_ID, FaceEngine, InputError, Observation, decode_image, normalized, profile_similarity, similarity
+from .recognition import DEFAULT_THRESHOLD, MODEL_ID, FaceEngine, InputError, Observation, ProfileMatcher, decode_image, normalized, similarity
 from .sessions import Attempt
-from .enrollment import Enrollment
+from .enrollment import Enrollment, ENROLLMENT_VERSION, STEPS
 from .storage import ProfileStore
 
 
@@ -28,10 +28,11 @@ class SandboxService:
         self.lock = threading.Lock()
         self.attempts: dict[str, Attempt] = {}
         self.enrollment: Enrollment | None = None
+        self._matched_profile = self._matcher = None
 
     def status(self) -> dict:
         return {
-            "version": "0.7.0",
+            "version": "0.8.0",
             "mode": "sandbox",
             "token": self.token,
             "engine": {"ready": self.engine is not None, "loading": self.engine_loading, "id": MODEL_ID, "message": self.engine_error},
@@ -46,7 +47,10 @@ class SandboxService:
     def score(self, observation) -> float | None:
         if observation.embedding is None or self.store.profile is None:
             return None
-        return profile_similarity(observation.embedding, self.store.profile)
+        if self._matched_profile is not self.store.profile:
+            self._matcher = ProfileMatcher(self.store.profile)
+            self._matched_profile = self.store.profile
+        return self._matcher.score(observation.embedding)
 
     def observe(self, data: dict, skip_recognition=None):
         if self.engine is None:
@@ -54,14 +58,20 @@ class SandboxService:
         return self.engine.observe(decode_image(data.get("image")), skip_recognition=skip_recognition)
 
     def save_profile(self, name: str, embeddings: list, source: str, poses: list | None = None):
-        self.store.save({
+        profile = {
             "id": secrets.token_hex(12), "name": name.strip(), "model_id": MODEL_ID,
             "embedding": normalized(np.mean(embeddings, axis=0)).tolist(),
             "templates": [normalized(embedding).tolist() for embedding in embeddings],
             "samples": len(embeddings), "source": source,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "guided": poses is not None, "poses": poses or [],
-        })
+        }
+        if poses is not None:
+            profile.update(enrollment_version=ENROLLMENT_VERSION,
+                           template_groups=[pose["step"] for pose in poses],
+                           observations=sum(pose["observations"] for pose in poses))
+        self.store.save(profile)
+        self._matched_profile = self._matcher = None
         self.attempts.clear()
         self.enrollment = None
         return self.status()
@@ -132,6 +142,7 @@ class SandboxService:
             return self.status()
         if method == "DELETE" and path == "/api/profile":
             self.store.clear()
+            self._matched_profile = self._matcher = None
             self.attempts.clear()
             self.enrollment = None
             return self.status()
@@ -178,8 +189,8 @@ class SandboxService:
                     result = enrollment.observe(observation)
                     return {"observation": observation.public(), "enrollment": result}
                 if parts[3] == "finish":
-                    if enrollment.state != "ready" or len(enrollment.embeddings) != 5:
-                        raise ApiError("Complete all five guided angles first.", 409)
+                    if enrollment.state != "ready" or len(enrollment.embeddings) != len(STEPS):
+                        raise ApiError("Complete both guided circles first.", 409)
                     if self.store.profile or self.store.error:
                         raise ApiError("The profile changed. Start again.", 409)
                     return self.save_profile(enrollment.name, enrollment.embeddings, "camera", enrollment.poses)

@@ -18,14 +18,22 @@ from backend.viso.native import Camera, NativeHost
 from backend.viso.recognition import FaceEngine, MODEL_ID
 from backend.viso.service import SandboxService
 from backend.viso.storage import ProfileStore
+from backend.viso.enrollment import validate_circular_profile, STEPS
 
 
 def validate_profile(profile):
     if not isinstance(profile, dict) or profile.get("model_id") != MODEL_ID:
         raise ValueError("Enroll with the current Viso recognition model first.")
-    if profile.get("source") != "camera" or profile.get("guided") is not True or profile.get("samples") != 5:
-        raise ValueError("Windows sign-in requires a completed five-angle camera enrollment.")
-    for key, shape in (("embedding", (128,)), ("templates", (5, 128))):
+    if profile.get("source") != "camera" or profile.get("guided") is not True:
+        raise ValueError("Windows sign-in requires a completed guided camera enrollment.")
+    if profile.get("enrollment_version") or "template_groups" in profile:
+        validate_circular_profile(profile)
+        samples = len(STEPS)
+    else:
+        samples = 5
+        if type(profile.get("samples")) is not int or profile["samples"] != samples:
+            raise ValueError("Windows sign-in requires a completed guided camera enrollment.")
+    for key, shape in (("embedding", (128,)), ("templates", (samples, 128))):
         values = np.asarray(profile.get(key), dtype=np.float32)
         if values.shape != shape or not np.isfinite(values).all():
             raise ValueError("Invalid face profile.")
