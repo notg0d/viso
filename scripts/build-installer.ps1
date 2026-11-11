@@ -37,6 +37,8 @@ New-Item -ItemType Directory -Path (Join-Path $bundle 'installer') | Out-Null
 Copy-Item (Join-Path $root 'installer\deploy.ps1') (Join-Path $bundle 'installer\deploy.ps1')
 Copy-Item (Join-Path $PSScriptRoot 'signin-common.ps1') (Join-Path $bundle 'installer\signin-common.ps1')
 Copy-VisoTree (Join-Path $root 'docs') (Join-Path $bundle 'docs')
+& "$root\.venv\Scripts\python.exe" -I -B (Join-Path $PSScriptRoot 'package-installer-docs.py') $root $bundle $commit
+if ($LASTEXITCODE -ne 0) { throw 'Installer documentation packaging failed.' }
 $runtime = Get-Content -LiteralPath (Join-Path $bundle 'runtime\packages.json') -Raw | ConvertFrom-Json
 $release = [ordered]@{
     version = $version; source_commit = $commit; source_dirty = [bool]$changes.Count

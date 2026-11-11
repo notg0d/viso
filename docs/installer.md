@@ -9,7 +9,7 @@ The **0.8.2 source build** adds `Viso-0.8.2-Setup-x64.exe`, an all-in-one, admin
 - Native desktop app, Start-menu shortcut, optional desktop shortcut, and Windows Installed apps uninstall entry.
 - Private x64 Python interpreter, pinned dependency closure, recognition models, and upstream notices/licenses. Users need no Python, Visual Studio, Inno Setup, .NET SDK, or first-run model download.
 - x64 Credential Provider and automatic LocalSystem `VisoSignIn` service, using the same protected runtime.
-- Documentation, build provenance and a pinned SHA-256 payload manifest; a separate checksum accompanies the Setup executable.
+- Documentation, build provenance and a pinned SHA-256 payload manifest; a separate checksum accompanies the Setup executable. Included guide links work locally; references to unshipped development sources point to the build's pinned GitHub commit (publish that source commit before distributing those references).
 
 Requires **Windows 10/11 x64 and .NET Framework 4.8**. Windows on ARM is unsupported. These experimental builds are unsigned and may trigger SmartScreen. Verify the download before running. The repository does not currently declare a project-wide Viso license; retain all upstream notices when distributing. Inno Setup is a build-only tool; its own license/commercial-use terms apply to the builder.
 
