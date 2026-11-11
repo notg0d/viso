@@ -561,6 +561,19 @@ namespace Viso
                 if (!Ready) throw new InvalidOperationException("Real recognition models did not initialize.");
                 if (Find<Border>("Notice").Visibility == Visibility.Visible) throw new InvalidOperationException("Model loading left an error notice after successful initialization.");
                 string output = Path.Combine(root, "test-results", "native"); Directory.CreateDirectory(output);
+                var diagnostics = await engine.Send("diagnostics");
+                if (!diagnostics.Child("runtime").Flag("isolated") || diagnostics.Child("runtime").Number("bits") != 64 || diagnostics.Child("camera").Flag("running") || diagnostics.Get("profile") != null || diagnostics.Get("token") != null)
+                    throw new InvalidOperationException("Runtime diagnostic isolation, privacy or camera-off state failed.");
+                var export = ActivityExport(diagnostics);
+                if (export.Text("desktop_version") != "0.8.1.0" || export.Text("windows_version") == "" || export.Child("diagnostics").Child("engine").Text("model") == "")
+                    throw new InvalidOperationException("Activity export omitted version or model diagnostics.");
+                File.WriteAllText(Path.Combine(output, "diagnostics.json"), Json.Encode(export));
+                int beforeOldError = epoch; cameraOn = true; cameraGeneration = 41;
+                EngineEvent(Json.Data("event", "camera_error", "generation", 40, "message", "Synthetic stale error"));
+                await window.Dispatcher.InvokeAsync(delegate { }, DispatcherPriority.ApplicationIdle);
+                if (epoch != beforeOldError || !cameraOn || Find<Border>("Notice").Visibility == Visibility.Visible)
+                    throw new InvalidOperationException("An old-generation camera error canceled a newer session.");
+                cameraOn = false;
                 SetPage("face");
                 await RenderingChecks.Run(window, output, SetPreview, delegate(bool enrolling) { operation = enrolling ? "enrollment" : ""; UpdateControls(); });
                 foreach (string target in new[] { "face", "unlock", "lab", "activity", "settings" })
@@ -618,7 +631,7 @@ namespace Viso
                     if (HasProfile) throw new InvalidOperationException("Profile deletion failed.");
                 }
                 await engine.Send("cancel"); await engine.Send("camera.stop");
-                File.WriteAllText(Path.Combine(output, "smoke.json"), Json.Encode(Json.Data("passed", true, "engine", status.Child("engine"), "real_portrait_enrollment_rejection_deletion", testedPortrait, "checks", new[] { "real worker initialization", "preview coverage, crop and mirroring", "profile name visibility and edit state", "five native pages", "two-pass circular enrollment visual state", "eight-sector blue/green progress", "cached frozen ring resources", "reduced motion completion", "power interruption cleanup", "minimum window size", "control gating", "real blank-frame inference", "Unicode IPC", "cancel and camera stop" })));
+                File.WriteAllText(Path.Combine(output, "smoke.json"), Json.Encode(Json.Data("passed", true, "engine", status.Child("engine"), "real_portrait_enrollment_rejection_deletion", testedPortrait, "checks", new[] { "real worker initialization", "runtime/camera diagnostic export", "preview coverage, crop and mirroring", "profile name visibility and edit state", "five native pages", "two-pass circular enrollment visual state", "eight-sector blue/green progress", "cached frozen ring resources", "reduced motion completion", "power interruption cleanup", "minimum window size", "control gating", "real blank-frame inference", "Unicode IPC", "cancel and camera stop" })));
                 window.Close();
             }
             catch (Exception error) { SmokeFail(error); }

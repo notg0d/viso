@@ -1,5 +1,6 @@
 import unittest
 import tempfile
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -32,20 +33,25 @@ class ResponsivenessTests(unittest.TestCase):
         camera = Camera(lambda _: None, preview=False)
         image = np.zeros((100, 100, 3), np.uint8)
         reads = 0
+        blocked, finish = threading.Event(), threading.Event()
         def read():
             nonlocal reads
             reads += 1
             if reads > 1:
+                blocked.set()
+                finish.wait(2)
                 camera.stopped.set()
             return True, image
         with patch("backend.viso.native.cv2.VideoCapture") as factory, patch("backend.viso.native.cv2.imencode") as encode:
             factory.return_value.isOpened.return_value = True
             factory.return_value.read.side_effect = read
             camera.start(0)
-            camera.thread.join(2)
-            encode.assert_not_called()
+            self.assertTrue(blocked.wait(1))
             self.assertIs(decode_image(camera.frame()), image)
             self.assertFalse(image.flags.writeable)
+            finish.set()
+            camera.thread.join(2)
+            encode.assert_not_called()
             camera.stop()
             self.assertIsNone(camera.latest)
             self.assertFalse(camera.frames)

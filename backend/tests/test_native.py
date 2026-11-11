@@ -145,20 +145,28 @@ class NativeHostTests(unittest.TestCase):
         camera = Camera(emitted.append)
         image = np.zeros((100, 100, 3), np.uint8)
         reads = 0
+        clock = [100.]
+        finished = threading.Event()
+        finish = threading.Event()
 
         def read():
             nonlocal reads
             reads += 1
+            clock[0] = 100 + reads / 30
             if reads == 8:
+                finished.set()
+                finish.wait(2)
                 camera.stopped.set()
             return True, image
 
         with patch("backend.viso.native.cv2.VideoCapture") as factory, \
-                patch("backend.viso.native.monotonic", side_effect=[100 + index / 30 for index in range(8)]):
+                patch("backend.viso.native.monotonic", side_effect=lambda: clock[0]):
             device = factory.return_value
             device.isOpened.return_value = True
             device.read.side_effect = read
             camera.start(0)
+            self.assertTrue(finished.wait(1))
+            finish.set()
             camera.thread.join(timeout=2)
             self.assertFalse(camera.thread.is_alive())
             self.assertEqual(len(camera.frames), 6)
@@ -219,6 +227,7 @@ class NativePipeTests(unittest.TestCase):
             {"id": 2, "command": "unsupported"},
             {"id": 3, "command": "analyze", "data": {"image": "data:image/png;base64," + base64.b64encode(cv2.imencode(".png", np.zeros((100, 100, 3), np.uint8))[1]).decode()}},
             {"id": 4, "command": "cancel"},
+            {"id": 5, "command": "diagnostics"},
         ]
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -242,6 +251,11 @@ class NativePipeTests(unittest.TestCase):
             self.assertIn("error", messages[2])
             self.assertEqual(messages[3]["result"]["face_count"], 0)
             self.assertEqual(messages[4]["result"]["state"], "locked")
+            diagnostics = messages[5]["result"]
+            self.assertTrue(diagnostics["runtime"]["isolated"])
+            self.assertEqual(diagnostics["runtime"]["bits"], 64)
+            self.assertFalse(diagnostics["camera"]["running"])
+            self.assertNotIn("token", diagnostics)
         finally:
             if worker.poll() is None:
                 worker.kill(); worker.communicate()
