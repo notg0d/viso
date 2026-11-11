@@ -14,6 +14,7 @@
 | [`signin/Shared/`](../signin/Shared/) | C# Windows interop and bounded named-pipe protocol; also compiled into the desktop. |
 | [`signin/Tests/` on `test`](https://github.com/notg0d/viso/tree/test/signin/Tests) | Actual DLL and service/protocol regressions; synthetic credentials only, not on `main`. |
 | [`scripts/`](../scripts/) | Stable root-relative setup/build/test/deployment commands. |
+| [`installer/`](../installer/) | All-in-one Inno wizard and protected payload deployment/recovery helper. |
 | [`models/manifest.json`](../models/manifest.json) | Version-pinned model sizes, sources, and SHA-256 values. |
 | [`tests/` on `test`](https://github.com/notg0d/viso/blob/test/tests/README.md) | Shared downloaded portrait-fixture location. Browser tests live with the browser package. |
 | [`experiments/browser/` on `test`](https://github.com/notg0d/viso/blob/test/experiments/browser/README.md) | Historical React/TypeScript/Vite bench with its own package and lockfile; not on `main`. |
@@ -36,6 +37,8 @@ No Node.js or .NET SDK is needed. The x64 build uses the installed .NET Framewor
 Python dependency versions are in `requirements.txt`; model versions/hashes are in `models/manifest.json`. Setup deliberately removes the competing `opencv-python-headless` distribution before installing the single contrib wheel required by MediaPipe.
 
 For a directly runnable Windows bundle, use `scripts/build-release.ps1` from committed sources. [Packaging, provenance, and extracted-artifact validation](releases.md#build-an-artifact).
+
+For a complete desktop/runtime/models/sign-in Setup.exe, use `scripts/build-installer.ps1 -Compiler PATH` from clean committed production sources. Inno Setup is build-only; building does not deploy anything. [Installer build, storage and lifecycle validation](installer.md).
 
 ## Validate changes
 

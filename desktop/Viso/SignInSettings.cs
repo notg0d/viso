@@ -16,9 +16,9 @@ namespace Viso
             catch (TimeoutException) { return "Sign-in components are not installed or the service is stopped. Run scripts\\install-signin.ps1 from an administrator PowerShell."; }
             catch (IOException) { return "Sign-in service unavailable. Check the VisoSignIn Windows service."; }
         }
-        public static async Task<string> Link(string root, string kind, string user, string password, int camera)
+        public static async Task<string> Link(string dataDirectory, string kind, string user, string password, int camera)
         {
-            string path = Path.Combine(root, ".viso", "profile.dpapi");
+            string path = Path.Combine(dataDirectory, "profile.dpapi");
             if (!File.Exists(path) || new FileInfo(path).Length > 131072) throw new InvalidOperationException("Complete and save a camera enrollment first.");
             byte[] clear = ProtectedData.Unprotect(File.ReadAllBytes(path), null, DataProtectionScope.CurrentUser);
             try { return (await Wire.Request("link", kind, user, password, Encoding.UTF8.GetString(clear), camera.ToString(System.Globalization.CultureInfo.InvariantCulture)))[1]; }

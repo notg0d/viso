@@ -21,6 +21,7 @@ namespace Viso
     {
         private readonly Window window;
         private readonly string root;
+        private readonly string dataDirectory;
         private readonly bool ephemeral, smoke;
         private EngineClient engine;
         private readonly DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(66) };
@@ -39,7 +40,7 @@ namespace Viso
         private EnrollmentRing Ring { get { return Find<EnrollmentRing>("FaceRing"); } }
         private bool Ready { get { return status.Child("engine").Flag("ready"); } }
         private bool HasProfile { get { return status.Get("profile") != null; } }
-        private string PreferencesPath { get { return Path.Combine(root, ".viso", "desktop.json"); } }
+        private string PreferencesPath { get { return Path.Combine(dataDirectory, "desktop.json"); } }
         private T Find<T>(string name) where T : class { return (T)window.FindName(name); }
         private void Text(string name, string text) { Find<TextBlock>(name).Text = text; }
         private void Show(string name, bool visible) { Find<UIElement>(name).Visibility = visible ? Visibility.Visible : Visibility.Collapsed; }
@@ -48,6 +49,7 @@ namespace Viso
         public MainWindow(Window window, string root, bool ephemeral, bool smoke)
         {
             this.window = window; this.root = root; this.ephemeral = ephemeral; this.smoke = smoke;
+            dataDirectory = AppPaths.DataDirectory(root);
             Wire();
             window.Loaded += async delegate { await Initialize(); };
             window.Closed += delegate { Close(); };
@@ -144,7 +146,7 @@ namespace Viso
                 var password = Find<PasswordBox>("SignInPassword");
                 try {
                     await StopCamera();
-                    string message = await SignInSettings.Link(root, Find<ComboBox>("SignInAccountKind").SelectedIndex == 1 ? "microsoft" : "local", Find<TextBox>("SignInAccount").Text, password.Password, cameraIndex);
+                    string message = await SignInSettings.Link(dataDirectory, Find<ComboBox>("SignInAccountKind").SelectedIndex == 1 ? "microsoft" : "local", Find<TextBox>("SignInAccount").Text, password.Password, cameraIndex);
                     Text("SignInStatus", message); Log("Windows face sign-in account link updated.");
                 } finally { password.Clear(); }
             });
@@ -188,7 +190,7 @@ namespace Viso
                     } catch { /* A malformed UI preference cannot affect profile storage. */ }
                 }
                 UpdateMotion(); SetPage("face");
-                engine = new EngineClient(root, ephemeral || smoke);
+                engine = new EngineClient(root, ephemeral || smoke, dataDirectory);
                 engine.Event += EngineEvent;
                 // Let the window paint and discover devices while Python loads.
                 // A slow DirectShow driver must not block the UI thread.

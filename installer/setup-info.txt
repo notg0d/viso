@@ -1,0 +1,22 @@
+Viso installs the complete native desktop application, a private Python runtime,
+the pinned recognition models, and the experimental Windows face sign-in service
+and Credential Provider. No Python or compiler setup is needed on the user's PC.
+
+Requires Windows 10/11 x64 and .NET Framework 4.8. Windows on ARM is not supported.
+
+IMPORTANT: This changes Windows sign-in. Keep a working ordinary Windows password
+or PIN available. RGB face recognition and prompted blink checks are experimental,
+not Windows Hello certified and not proven resistant to replay/generated video.
+
+Existing Viso account links are retained during upgrades. Setup never asks for an
+account password, enrolls a face or links an account on someone's behalf. After
+installation, open Viso as your ordinary signed-in Windows user, enroll your face,
+then use Settings > Windows face sign-in to link that same Windows account.
+
+The desktop stores private enrollment/preferences in %LOCALAPPDATA%\Viso. Protected
+account-password snapshots stay in %PROGRAMDATA%\Viso\Accounts. Existing source or
+portable .viso folders are not moved or deleted by Setup.
+
+The installer and application are unsigned experimental builds. Verify the
+installer SHA-256 before running. Upstream licenses/notices are included; the
+repository currently does not declare a project-wide Viso license.

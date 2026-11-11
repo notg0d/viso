@@ -4,6 +4,8 @@
 
 ## Download and run
 
+The **0.8.2 source build** additionally provides an [all-in-one Setup.exe builder](installer.md), including Windows sign-in. It does not replace the published desktop-only v0.8.1 ZIP described below, and has not been published as a GitHub release.
+
 Get the **ZIP**, not GitHub's automatically generated source-code archives, from the [0.8.1 experimental release](https://github.com/notg0d/viso/releases/tag/v0.8.1):
 
 - **`Viso-0.8.1-windows-x64.zip`** — native desktop plus private Python runtime, pinned dependencies, verified models, and notices.

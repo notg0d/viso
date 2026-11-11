@@ -8,11 +8,11 @@
 | :--- | :--- |
 | Windows | 64-bit Windows 10 or 11. |
 | Desktop runtime | .NET Framework 4.8. Source builds use Windows' installed C# compiler. |
-| Recognition runtime | Included in the release ZIP. Source setup needs 64-bit Python 3.11+ with wheels available for [the pinned dependencies](../requirements.txt); development is verified with Python 3.14. |
+| Recognition runtime | Included in the release ZIP and complete installer. Source setup needs 64-bit Python 3.11+ with wheels available for [the pinned dependencies](../requirements.txt); development is verified with Python 3.14. |
 | Camera | A Windows-accessible webcam for live enrollment; not required for the photo lab. |
 | First setup | Download/extract the complete release ZIP. Source setup additionally downloads Python packages and approximately 43 MB of model weights. |
 
-The desktop does not require Node.js, Electron, WebView, a .NET SDK, or administrator privileges. Visual Studio C++ tools and administrator installation are needed only for the [optional sign-in components](windows-signin.md).
+Running the desktop does not require Node.js, Electron, WebView, a .NET SDK, or administrator privileges. The [complete 0.8.2 Setup.exe](installer.md) additionally includes Windows sign-in and needs administrator approval to install; end users need no Python/compiler setup. Visual Studio C++ tools are needed only when building the sign-in components from source. The published v0.8.1 ZIP remains desktop-only.
 
 ## Download and run
 
@@ -41,10 +41,11 @@ Keep the executable within the project directory so it can locate `.venv/`, `bac
 | :--- | :--- |
 | `.\Viso.exe --ephemeral` (release ZIP) | Memory-only enrollment; lost when the app closes. Cannot enable Windows sign-in. |
 | Open `Viso.exe` (release ZIP) | Encrypted profile in `.viso/profile.dpapi` beside the app, for the same Windows user/machine. |
+| Open Viso from the Start menu (complete installer) | Encrypted profile in `%LOCALAPPDATA%\Viso\profile.dpapi`, separately for each Windows user. |
 | `.\scripts\start.ps1 -Ephemeral` | Memory-only for this worker process; lost when the app closes. Cannot enable Windows sign-in. |
 | `.\scripts\start.ps1` | One encrypted profile in `.viso/profile.dpapi`, restored by the same Windows user/machine. |
 
-An ephemeral profile is not converted into a persistent one. Close the app, launch normally, and enroll again if you want to save it. Desktop preferences are separate in `.viso/desktop.json`. Closing Viso releases the camera and shuts down its worker. For ZIP updates, [retain your own local state explicitly](releases.md#update-or-remove).
+An ephemeral profile is not converted into a persistent one. Close the app, launch normally, and enroll again if you want to save it. Desktop preferences are separate in `desktop.json` in the selected state directory. Closing Viso releases the camera and shuts down its worker. For ZIP updates, [retain your own local state explicitly](releases.md#update-or-remove); installer upgrades retain per-user state without migrating portable/source folders.
 
 ## 2. Enroll with a webcam
 

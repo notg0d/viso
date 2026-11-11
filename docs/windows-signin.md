@@ -7,7 +7,7 @@
 
 Viso includes an x64 V2 Credential Provider and a `VisoSignIn` Windows service. The provider submits a Windows credential after the service matches a face, prompts for a fresh blink, and confirms both eyes reopened. Windows performs the account authentication.
 
-**Status:** the user-authorized 0.8.0 upgrade is installed on the development machine. Installed file hashes, retained account links, x64 provider registration, automatic LocalSystem service startup and 25 installed-runtime checks passed. Earlier automatic local-account sign-in was confirmed, but actual unlock and physical sleep/hibernate/Modern Standby have not been tested with 0.8.0. Reboot, Microsoft-account and multi-user validation remain necessary.
+**Status:** the user-authorized source build `ac7ce8b` is installed on the development machine, including bounded camera fallback and diagnostics. All 3,219 installed payload file hashes matched; the encrypted account link and desktop enrollment were retained, non-Viso provider registrations/filters were unchanged, x64 registration/automatic LocalSystem service startup were verified, and 25 installed-runtime checks passed. No restart was needed. This is a local source installation, not a replacement of the public v0.8.1 ZIP. Current-build actual unlock, physical sleep/hibernate/Modern Standby, reboot, Microsoft-account and multi-user validation remain necessary.
 
 The separate **desktop 0.8.1 hotfix** fixes an Unlock test ring-rendering crash. It does not change the installed sign-in binaries/runtime, account links or face enrollment; another administrator reinstall is not needed for this desktop-only fix.
 
@@ -23,6 +23,8 @@ Link from the Windows account you intend to unlock. The service validates the pa
 Windows Hello PINs are device-specific credentials and cannot replace the account password here. Blank-password and passwordless-only accounts are unsupported. If Microsoft-account validation fails, first sign into Windows once with the current account password so its cached Windows credentials are current. If Windows is configured to allow only Hello sign-in for Microsoft accounts, password sign-in must be available for this prototype. Work/school, Entra ID, domain, RDP/CredUI, and password-change scenarios are outside this implementation.
 
 ## Build and install
+
+The **0.8.2 source build** can also produce a [complete Windows Setup.exe](installer.md) containing the desktop, private Python/models and these sign-in components. End users need no source checkout, Python or C++ build tools. They must still explicitly enroll/link their own account after installation. The existing source-based workflow below remains supported.
 
 Requirements: x64 Windows 10/11, .NET Framework 4.8, the Python dependencies/models installed by `setup.ps1`, Visual Studio x64 C++ Build Tools, and a Windows SDK with Credential Provider headers. Windows on ARM is not supported by this DLL build.
 

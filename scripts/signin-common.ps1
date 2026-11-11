@@ -118,7 +118,13 @@ function Copy-VisoRuntime([string]$root, [string]$destination, [switch]$Protecte
         Set-VisoPayloadOwner $destination
         Assert-VisoTree $destination $true
     }
+    Test-VisoRuntime $destination
+}
+
+function Test-VisoRuntime([string]$destination) {
+    # Shared by source deployment and the offline, protected installer staging path.
     # Import isolation plus actual model checksums/loading/inference; no camera access.
+    $runtime = Join-Path $destination 'runtime'
     $check = @'
 import pathlib, sys
 root = pathlib.Path(sys.argv[1]).resolve()
