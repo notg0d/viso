@@ -65,6 +65,8 @@ var
   DeploymentReady, InstallationComplete, RemovalNeedsRestart: Boolean;
   KeepLinks: Boolean;
 
+#include "native-powershell.iss"
+
 function Quoted(const Value: String): String;
 begin
   Result := '"' + Value + '"';
@@ -92,8 +94,12 @@ begin
     Parameters := Parameters + ' -Transaction ' + Quoted(TransactionDirectory);
   if (Action = 'Uninstall') and KeepLinks then
     Parameters := Parameters + ' -KeepAccountLinks';
-  Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-    Parameters, '', SW_HIDE, ewWaitUntilTerminated, ExitCode);
+  Result := ExecNativePowerShell(Parameters, ExitCode);
+  if not Result then
+    Log('Viso helper launch failed for ' + Action + ': ' + SysErrorMessage(ExitCode))
+  else
+    Log('Viso helper ' + Action + ': exit code ' + IntToStr(ExitCode) +
+      ', native 64-bit PowerShell=' + GetIniString('Result', 'Native64', 'unknown', ResultPath));
   Result := Result and (ExitCode = 0) and
     (GetIniString('Result', 'Success', '0', ResultPath) = '1');
 end;

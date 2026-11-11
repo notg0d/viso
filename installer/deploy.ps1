@@ -8,6 +8,12 @@ param(
     [switch]$KeepAccountLinks
 )
 $ErrorActionPreference = 'Stop'
+if ($MyInvocation.InvocationName -ne '.') {
+    # Setup may inherit incompatible PowerShell 7 or user-writable module paths.
+    # Load only this Windows PowerShell's built-in modules in the helper process;
+    # never change the caller's environment when dot-sourced for validation.
+    $env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
+}
 $common = Join-Path $PSScriptRoot 'signin-common.ps1'
 if (-not (Test-Path -LiteralPath $common)) { $common = Join-Path (Split-Path $PSScriptRoot -Parent) 'scripts\signin-common.ps1' }
 . $common
@@ -326,10 +332,13 @@ namespace Viso { public static class InstallerRemoval {
 if ($MyInvocation.InvocationName -ne '.') {
     $success = $false; $restart = $false; $message = ''; $exitCode = 1
     try {
+        # Integrity-only verification must exercise the launcher's bitness too,
+        # but remains non-mutating and does not require elevation.
+        if (-not [Environment]::Is64BitProcess) { throw 'Use 64-bit PowerShell. If running Viso Setup, use the corrected x64 installer.' }
+        if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { throw 'Viso sign-in requires x64 Windows, not Windows on ARM.' }
         if ($Action -ne 'ValidatePayload') {
             $principal = New-Object Security.Principal.WindowsPrincipal ([Security.Principal.WindowsIdentity]::GetCurrent())
-            if (-not [Environment]::Is64BitProcess -or -not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Use 64-bit administrator PowerShell.' }
-            if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { throw 'Viso sign-in requires x64 Windows, not Windows on ARM.' }
+            if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Viso Setup requires Windows administrator approval.' }
             if ($Action -eq 'Install') {
                 $framework = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' -Name Release
                 if ($framework.Release -lt 528040) { throw 'Install .NET Framework 4.8 before running Viso Setup.' }
@@ -353,7 +362,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         if ($ResultFile) {
             Assert-VisoNoReparse $ResultFile
             $message = $message.Replace("`r",' ').Replace("`n",' ')
-            "[Result]`r`nSuccess=$([int]$success)`r`nRestartRequired=$([int]$restart)`r`nMessage=$message`r`n" | Set-Content -LiteralPath $ResultFile -Encoding Unicode
+            "[Result]`r`nSuccess=$([int]$success)`r`nNative64=$([int][Environment]::Is64BitProcess)`r`nRestartRequired=$([int]$restart)`r`nMessage=$message`r`n" | Set-Content -LiteralPath $ResultFile -Encoding Unicode
         }
     }
     exit $exitCode
