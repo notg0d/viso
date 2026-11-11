@@ -1,6 +1,7 @@
-"""Server-owned pose sequence; capture only stable, open-eye, same-person samples."""
+"""Two server-owned circular sweeps of distinct, open-eye, same-person views."""
 
 from dataclasses import dataclass, field
+from math import atan2, degrees
 from time import monotonic
 
 import numpy as np
@@ -8,18 +9,46 @@ import numpy as np
 from .recognition import Observation, normalized, similarity
 from .attention import EyeCalibration, apply_eye_state
 
+ENROLLMENT_VERSION = "circular-v1"
+CIRCUIT = (
+    ("left", "Turn gently to your left", "Start the circle to your left, keeping both eyes visible."),
+    ("up_left", "Continue left and slightly up", "Move gently around the circle. Keep your eyes on the camera."),
+    ("up", "Lift your chin slightly", "Continue across the top of the circle, with a small chin lift."),
+    ("up_right", "Continue slightly up and right", "Keep moving gently around the circle toward your right."),
+    ("right", "Turn gently to your right", "Keep both eyes visible as you pass the right side."),
+    ("down_right", "Continue right and slightly down", "Lower your chin a little as you continue the circle."),
+    ("down", "Lower your chin slightly", "Continue across the bottom of the circle. Use small movements."),
+    ("down_left", "Continue slightly down and left", "Complete this circle toward your left. Keep both eyes visible."),
+)
 STEPS = (
     ("center", "Look straight at the camera", "Keep your head upright and both eyes open."),
-    ("left", "Turn slightly to your left", "Follow the light to the left. Keep both eyes visible."),
-    ("right", "Turn slightly to your right", "Follow the light to the right. Keep both eyes visible."),
-    ("up", "Lift your chin slightly", "Follow the light upward. Keep your eyes on the camera."),
-    ("down", "Lower your chin slightly", "Follow the light downward. Keep your eyes on the camera."),
-)
+) + CIRCUIT * 2
 
-TARGETS = {"center": (0, 0, 10, 18), "left": (14, 0, 8, 13), "right": (-14, 0, 8, 13),
-           "up": (0, -10, 13, 6), "down": (0, 10, 13, 6)}
+TARGETS = {"center": (0, 0, 10, 18), "left": (14, 0, 8, 6), "right": (-14, 0, 8, 6),
+           "up": (0, -10, 8, 6), "down": (0, 10, 8, 6),
+           "up_left": (10, -7, 7, 5), "up_right": (-10, -7, 7, 5),
+           "down_left": (10, 7, 7, 5), "down_right": (-10, 7, 7, 5)}
 RECENTER = (0, 0, 9, 9)
 MAX_ROLL = 18
+
+
+def validate_circular_profile(profile: dict) -> None:
+    """Bound the new format and require the complete, ordered pose coverage."""
+    expected = [step[0] for step in STEPS]
+    poses = profile.get("poses")
+    if (profile.get("enrollment_version") != ENROLLMENT_VERSION
+            or type(profile.get("samples")) is not int or profile["samples"] != len(STEPS)
+            or profile.get("template_groups") != expected
+            or not isinstance(poses, list) or len(poses) != len(STEPS)):
+        raise ValueError("Complete both circular camera enrollment passes first.")
+    for step, pose in zip(expected, poses):
+        if (not isinstance(pose, dict) or pose.get("step") != step
+                or type(pose.get("observations")) is not int or not 3 <= pose["observations"] <= 12
+                or any(isinstance(pose.get(key), bool) or not isinstance(pose.get(key), (int, float))
+                       or not np.isfinite(pose[key]) for key in ("yaw", "pitch"))):
+            raise ValueError("Invalid circular enrollment coverage.")
+    if type(profile.get("observations")) is not int or profile["observations"] != sum(pose["observations"] for pose in poses):
+        raise ValueError("Invalid circular enrollment observation count.")
 
 
 def pose_matches(step: str, yaw: float, pitch: float, roll: float) -> bool:
@@ -28,7 +57,15 @@ def pose_matches(step: str, yaw: float, pitch: float, roll: float) -> bool:
     if step not in TARGETS:
         return False
     target_yaw, target_pitch, tolerance_yaw, tolerance_pitch = TARGETS[step]
-    return abs(yaw - target_yaw) <= tolerance_yaw and abs(pitch - target_pitch) <= tolerance_pitch
+    if abs(yaw - target_yaw) > tolerance_yaw or abs(pitch - target_pitch) > tolerance_pitch:
+        return False
+    if step == "center":
+        return True
+    # Separate eight sectors in normalized pose space. A cardinal view cannot
+    # fill its neighboring diagonal merely by holding the same pose longer.
+    angle = degrees(atan2(-pitch / 10, yaw / 14))
+    target = degrees(atan2(-target_pitch / 10, target_yaw / 14))
+    return abs((angle - target + 180) % 360 - 180) <= 24
 
 
 @dataclass
@@ -37,7 +74,7 @@ class Enrollment:
     name: str
     started_at: float
     state: str = "capturing"
-    message: str = "Follow the directions. Each angle is captured automatically."
+    message: str = "Face the camera, then make two small, slow circles with your head."
     embeddings: list = field(default_factory=list)
     poses: list = field(default_factory=list)
     baseline: tuple | None = None
@@ -154,16 +191,18 @@ class Enrollment:
                     # noisy frame. Neutral calibration uses the same robust hold.
                     pose = np.median([item[1] for item in self.hold_samples], axis=0)
                     self.embeddings.append(normalized(np.mean([item[0] for item in self.hold_samples], axis=0)))
-                    self.poses.append({"step": step, "yaw": round(float(pose[0]), 1), "pitch": round(float(pose[1]), 1)})
+                    self.poses.append({"step": step, "yaw": round(float(pose[0]), 1), "pitch": round(float(pose[1]), 1),
+                                       "observations": len(self.hold_samples)})
                     if self.baseline is None:
                         self.baseline = (float(pose[0]), float(pose[1]))
                     self.reset_hold()
-                    self.message = "Angle captured. Follow the next direction."
-                    self.returning = len(self.embeddings) > 1
+                    self.message = "View captured. Continue gently around the circle."
+                    self.pose_history.clear()
+                    self.returning = len(self.embeddings) == 1 + len(CIRCUIT)
                     if len(self.embeddings) == len(STEPS):
                         self.state = "ready"
                         self.returning = False
-                        self.message = "All five angles captured."
+                        self.message = "Both circles captured. Your face profile is ready."
         return self.public()
 
     def public(self) -> dict:
@@ -174,8 +213,15 @@ class Enrollment:
                     "pitch": round(self.measured_pose[1], 1) if self.measured_pose else None,
                     "target_yaw": target[0], "target_pitch": target[1],
                     "tolerance_yaw": target[2], "tolerance_pitch": target[3]}
+        circuit = min(2, max(1, (max(1, index) - 1) // len(CIRCUIT) + 1))
+        circuit_captured = max(0, min(len(CIRCUIT), index - 1 - (circuit - 1) * len(CIRCUIT)))
+        if self.returning:
+            circuit, circuit_captured = 1, len(CIRCUIT)
         return {"id": self.id, "state": self.state, "captured": index, "total": len(STEPS), "step": step[0],
+                "circuit": circuit, "circuits": 2, "circuit_captured": circuit_captured,
+                "circuit_total": len(CIRCUIT), "observations": sum(pose["observations"] for pose in self.poses),
+                "enrollment_version": ENROLLMENT_VERSION,
                 "title": "Return to the center" if self.returning else step[1],
-                "instruction": "Face the camera before the next angle." if self.returning else step[2],
+                "instruction": "Face the camera briefly before making the second circle." if self.returning else step[2],
                 "message": self.message, "hold_progress": round(self.hold_progress, 2),
                 "steps": [item[0] for item in STEPS], "returning": self.returning, "guidance": guidance}

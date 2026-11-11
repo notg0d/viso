@@ -51,6 +51,8 @@ class Credential final : public ICredentialProviderCredential2, public IConnecta
     UINT_PTR context = 0;
     bool selected = false, attempted = false, scanning = false;
     HWND scanWindow = nullptr;
+    HPOWERNOTIFY powerNotification = nullptr, displayNotification = nullptr;
+    bool sleeping = false, displayOff = false, resumePending = false;
     struct Update {
         ULONGLONG ticket;
         std::wstring text;
@@ -153,6 +155,10 @@ class Credential final : public ICredentialProviderCredential2, public IConnecta
     }
     static LRESULT CALLBACK ScanWindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR data)
     {
+        if (message == WM_POWERBROADCAST) {
+            auto owner = reinterpret_cast<Credential*>(data);
+            owner->AddRef(); owner->PowerEvent(wparam, lparam); owner->Release(); return TRUE;
+        }
         if (message == ScanMessage) {
             auto owner = reinterpret_cast<Credential*>(data);
             owner->AddRef(); owner->PresentUpdates(); owner->Release(); return 0;
@@ -164,15 +170,18 @@ class Credential final : public ICredentialProviderCredential2, public IConnecta
     {
         // A message-only window keeps callbacks on LogonUI's thread. No camera,
         // pipe connection, inference, or wait occurs in SetSelected.
-        if (!selected || attempted || !events || !providerEvents) return;
-        attempted = true;
+        if (!selected || !events || !providerEvents) return;
         if (!scanWindow) {
             HWND window = CreateWindowExW(0, L"STATIC", L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr);
             if (!window) return;
             if (!SetWindowSubclass(window, ScanWindowProc, 1, reinterpret_cast<DWORD_PTR>(this))) { DestroyWindow(window); return; }
             std::lock_guard<std::mutex> lock(gate);
             scanWindow = window;
+            powerNotification = RegisterSuspendResumeNotification(window, DEVICE_NOTIFY_WINDOW_HANDLE);
+            displayNotification = RegisterPowerSettingNotification(window, &GUID_SESSION_DISPLAY_STATUS, DEVICE_NOTIFY_WINDOW_HANDLE);
         }
+        if (attempted || sleeping || displayOff || resumePending) return;
+        attempted = true;
         auto ticket = Begin();
         AddRef();
         try {
@@ -193,11 +202,54 @@ class Credential final : public ICredentialProviderCredential2, public IConnecta
             }).detach();
         } catch (...) { Clear(); Release(); }
     }
+    void PauseForPower()
+    {
+        // Power notifications are handled on the same apartment as LogonUI.
+        // Incrementing the generation cancels pipe I/O and queued callbacks;
+        // absolutely no pre-suspend credential or blink evidence is retained.
+        Clear(); attempted = false; resumePending = true;
+        std::lock_guard<std::mutex> lock(gate);
+        detail = L"Viso is paused. A fresh scan will start when you return.";
+    }
+    void ResumeSelected()
+    {
+        if (!resumePending || sleeping || displayOff) return;
+        resumePending = false;
+        if (selected) StartSelected();
+    }
+    void PowerEvent(WPARAM eventType, LPARAM data)
+    {
+        if (eventType == PBT_APMSUSPEND) { sleeping = true; PauseForPower(); }
+        else if (eventType == PBT_APMRESUMEAUTOMATIC) {
+            // Maintenance wake is not evidence of an interactive user. Do not
+            // start a camera until interactive resume or display-off -> on.
+            // A duplicate/late automatic notification must not cancel a scan
+            // already rearmed by interactive resume or display return.
+            sleeping = false;
+        }
+        else if (eventType == PBT_APMRESUMESUSPEND) { sleeping = false; ResumeSelected(); }
+        else if (eventType == PBT_POWERSETTINGCHANGE && data) {
+            auto setting = reinterpret_cast<const POWERBROADCAST_SETTING*>(data);
+            if (setting->PowerSetting == GUID_SESSION_DISPLAY_STATUS && setting->DataLength == sizeof(DWORD)) {
+                DWORD state; memcpy(&state, setting->Data, sizeof(state));
+                if (state == 0 && !displayOff) { displayOff = true; PauseForPower(); }
+                else if (state == 1 && (displayOff || resumePending)) {
+                    // Display return can precede the resume broadcast. The
+                    // initial notification also resolves a recreated window.
+                    displayOff = false; sleeping = false; ResumeSelected();
+                }
+            }
+        }
+    }
     void CloseScanWindow()
     {
         HWND window;
-        { std::lock_guard<std::mutex> lock(gate); window = scanWindow; scanWindow = nullptr; }
+        { std::lock_guard<std::mutex> lock(gate); window = scanWindow; scanWindow = nullptr;
+          if (powerNotification) UnregisterSuspendResumeNotification(powerNotification);
+           if (displayNotification) UnregisterPowerSettingNotification(displayNotification);
+           powerNotification = displayNotification = nullptr; }
         if (window) DestroyWindow(window);
+        sleeping = displayOff = false;
     }
 public:
     Credential(std::wstring sid, std::wstring qualified, bool local, CREDENTIAL_PROVIDER_USAGE_SCENARIO scenario)
@@ -217,7 +269,7 @@ public:
         if (providerEvents) providerEvents->Release();
         providerEvents = value; context = valueContext;
         if (providerEvents) { providerEvents->AddRef(); StartSelected(); }
-        else { Trace(L"provider events detached"); Clear(); }
+        else { Trace(L"provider events detached"); Clear(); CloseScanWindow(); }
     }
     void Detach() { SetDeselected(); UnAdvise(); SetProviderEvents(nullptr, 0); }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** value) override
@@ -238,7 +290,10 @@ public:
         // automatic serialization. Cancel work/callbacks, but keep an already
         // verified one-use result within its original 10-second deadline.
         // SetDeselected, Disconnect and provider teardown still purge it.
-        Clear(true); CloseScanWindow();
+        Clear(true);
+        // Keep power notifications during the short automatic-submit handoff:
+        // sleep must revoke a fresh result even while its UI sink is unadvised.
+        if (!HasCredential()) CloseScanWindow();
         if (events) events->Release(); events = nullptr; return S_OK;
     }
     HRESULT STDMETHODCALLTYPE SetSelected(BOOL* automatic) override
@@ -293,6 +348,7 @@ public:
     {
         if (!query) return E_INVALIDARG;
         Trace(L"Connect", S_OK, HasCredential());
+        if (sleeping || displayOff || resumePending) return HRESULT_FROM_WIN32(ERROR_CANCELLED);
         if (HasCredential()) return S_OK;
         { std::lock_guard<std::mutex> lock(gate); if (scanning) return S_OK; }
         attempted = true;

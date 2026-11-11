@@ -61,6 +61,7 @@ namespace Viso
             };
             SystemParameters.StaticPropertyChanged += OnSystemSettings;
             SystemEvents.SessionSwitch += OnSessionSwitch;
+            SystemEvents.PowerModeChanged += OnPowerModeChanged;
             timer.Tick += async delegate { PresentPreview(); await Tick(); };
         }
 
@@ -186,7 +187,6 @@ namespace Viso
                 UpdateMotion(); SetPage("face");
                 engine = new EngineClient(root, ephemeral || smoke);
                 engine.Event += EngineEvent;
-                timer.Start();
                 // Let the window paint and discover devices while Python loads.
                 // A slow DirectShow driver must not block the UI thread.
                 var engineStatus = engine.Send("status");
@@ -260,12 +260,14 @@ namespace Viso
             catch { ClearPreview(); throw; }
             if (ticket != epoch || closed || window.WindowState == WindowState.Minimized) throw new OperationCanceledException();
             cameraOn = true; cameraGeneration = (int)result.Number("generation");
+            timer.Start();
             Text("CameraStatus", "Live · on this PC"); Find<System.Windows.Shapes.Ellipse>("CameraDot").Fill = Brush("#65C7A0");
             Text("CaptureFeedback", "Center your face in the ring. The preview is mirrored."); Log("Camera started.");
         }
         private async Task StopCamera()
         {
             epoch++; operation = ""; Ring.Active = false;
+            timer.Stop();
             bool wasOn = cameraOn;
             cameraOn = false; ClearPreview();
             if (engine != null) await engine.Send("camera.stop");
@@ -281,7 +283,7 @@ namespace Viso
         {
             Find<PasswordBox>("SignInPassword").Clear();
             if (closed || engine == null) return;
-            epoch++; operation = ""; cameraOn = false; Ring.Active = false; ClearPreview(); UpdateControls();
+            epoch++; operation = ""; cameraOn = false; timer.Stop(); Ring.Reset(); ClearPreview(); UpdateControls();
             try { await engine.Send("camera.stop"); } catch { }
             if (!closed) { CaptureIdle(); UpdateControls(); }
         }
@@ -302,7 +304,7 @@ namespace Viso
             if (target != "settings") Find<PasswordBox>("SignInPassword").Clear();
             page = target;
             Show("CapturePage", page == "face" || page == "unlock"); Show("LabPage", page == "lab"); Show("ActivityPage", page == "activity"); Show("SettingsPage", page == "settings");
-            string[] headings = page == "face" ? new[] { "YOUR FACE, YOUR KEY", "A little more effortless.", "Five small turns. One familiar face." }
+            string[] headings = page == "face" ? new[] { "YOUR FACE, YOUR KEY", "A little more effortless.", "Two gentle circles. A more complete view." }
                 : page == "unlock" ? new[] { "LOOK. BLINK. YOU’RE IN.", "Give it a glance.", "Try your face profile in the local unlock simulator." }
                 : page == "lab" ? new[] { "THE IMAGE LAB", "Every detail, in focus.", "Repeatable face recognition, one photo at a time." }
                 : page == "activity" ? new[] { "SESSION ACTIVITY", "A clear view of things.", "The signals and decisions from this session." }
@@ -349,10 +351,10 @@ namespace Viso
                         status = await engine.Send("enrollment.finish");
                         if (ticket != epoch || closed) return;
                         UpdateStatus(); EnrollmentSaved();
-                        Log("Enrolled " + status.Child("profile").Text("name") + " with five guided angles.", "success");
+                        Log("Enrolled " + status.Child("profile").Text("name") + " with " + status.Child("profile").Number("samples") + " circular views.", "success");
                         await engine.Send("camera.stop");
                         if (ticket != epoch || closed) return;
-                        operation = ""; cameraOn = false; ClearPreview();
+                        operation = ""; cameraOn = false; timer.Stop(); ClearPreview();
                     }
                 }
                 else
@@ -363,7 +365,7 @@ namespace Viso
                         operation = "finishing"; Ring.Active = false; UpdateControls(); Log(attempt.Text("message"), attempt.Text("state") == "unlocked" ? "success" : "info");
                         await engine.Send("camera.stop");
                         if (ticket != epoch || closed) return;
-                        operation = ""; cameraOn = false; ClearPreview();
+                        operation = ""; cameraOn = false; timer.Stop(); ClearPreview();
                     }
                     else if (result.Flag("prompt_pending"))
                     {
@@ -378,14 +380,15 @@ namespace Viso
                 if (ticket == epoch && !closed) { operation = ""; Ring.Active = false; failure = error; Fail(error); }
             }
             finally { ticking = false; if (!closed) UpdateControls(); }
-            if (failure != null) { try { await engine.Send("cancel"); } catch { } }
+            if (failure != null) { try { await StopCamera(); } catch { } }
         }
         private void ApplyEnrollment(Dictionary<string, object> enrollment)
         {
             var guidance = enrollment.Child("guidance"); int captured = (int)enrollment.Number("captured");
             string title = enrollment.Text("title");
             if (Find<TextBlock>("GuideTitle").Text != title) { Text("GuideTitle", title); Motion.Enter(Find<TextBlock>("GuideTitle")); }
-            Text("GuideKicker", "ANGLE " + Math.Min(5, captured + 1) + " OF 5");
+            int total = Math.Max(1, (int)enrollment.Number("total"));
+            Text("GuideKicker", captured == 0 ? "FIRST, FACE THE CAMERA" : "CIRCLE " + Math.Max(1, (int)enrollment.Number("circuit")) + " OF 2 · VIEW " + Math.Min(total, captured + 1) + " OF " + total);
             Text("GuideDescription", enrollment.Text("instruction")); Text("CaptureFeedback", enrollment.Text("message"));
             Ring.Step = enrollment.Flag("returning") ? "center" : enrollment.Text("step");
             Ring.Set(captured, guidance.Number("yaw"), guidance.Number("pitch"), enrollment.Number("hold_progress"), enrollment.Text("state") == "ready");
@@ -393,14 +396,16 @@ namespace Viso
         }
         private void PaintPoses(int captured)
         {
-            string[] labels = { "Look straight ahead", "Turn a little left", "Turn a little right", "Gently look up", "Gently look down" };
-            for (int i = 0; i < labels.Length; i++) { var label = Find<TextBlock>("Pose" + i); label.Text = (i < captured ? "✓   " : i == captured ? "●   " : "○   ") + labels[i]; label.Foreground = Brush(i < captured ? "#77CDB0" : i == captured ? "#D7E9FF" : "#788391"); }
+            string[] labels = { "Face the camera", "First gentle circle · " + Math.Max(0, Math.Min(8, captured - 1)) + "/8 views", "Return briefly to center", "Second gentle circle · " + Math.Max(0, Math.Min(8, captured - 9)) + "/8 views", "17 views · at least 51 observations" };
+            int[] ends = { 1, 9, 10, 17, 17 };
+            int stage = captured == 0 ? 0 : captured < 9 ? 1 : Ring.Step == "center" && captured == 9 ? 2 : captured < 17 ? 3 : 4;
+            for (int i = 0; i < labels.Length; i++) { var label = Find<TextBlock>("Pose" + i); bool done = captured >= ends[i] && i != stage; label.Text = (done ? "✓   " : i == stage ? "●   " : "○   ") + labels[i]; label.Foreground = Brush(done ? "#77CDB0" : i == stage ? "#D7E9FF" : "#788391"); }
         }
         private void EnrollmentSaved()
         {
-            Ring.Active = false; Ring.Step = "center"; Ring.Set(5, 0, 0, 0, true); PaintPoses(5); Show("SuccessBadge", true);
+            Ring.Active = false; Ring.Step = "center"; Ring.Set(17, 0, 0, 0, true); PaintPoses(17); Show("SuccessBadge", true);
             Text("GuideKicker", "YOU’RE ALL SET"); Text("GuideTitle", "A face to remember.");
-            Text("GuideDescription", "Your five angles are saved. Head to Unlock test and give it a try.");
+            Text("GuideDescription", "Both circles are saved. Head to Unlock test and give it a try.");
             Text("CaptureFeedback", "Enrollment complete. " + status.Text("storage") + " · stored on this PC.");
         }
         private void ApplyAttempt(Dictionary<string, object> attempt)
@@ -412,7 +417,7 @@ namespace Viso
             Text("GuideDescription", attempt.Text("message")); Text("CaptureFeedback", attempt.Text("message"));
             Text("UnlockLabel", unlocked ? "✓  Simulator unlocked" : "●  Simulator locked");
             Text("UnlockDetail", unlocked ? "Face matched. Fresh blink confirmed. Both eyes open." : "The simulator waits for all checks to pass.");
-            Ring.Step = "center"; Ring.Set(unlocked ? 5 : 0, 0, 0, attempt.Number("streak") / Math.Max(1, attempt.Number("required")), unlocked);
+            Ring.Step = "center"; Ring.Set(unlocked ? 17 : 0, 0, 0, attempt.Number("streak") / Math.Max(1, attempt.Number("required")), unlocked);
             Show("SuccessBadge", unlocked);
         }
         private void ApplyObservation(Dictionary<string, object> observation)
@@ -479,6 +484,11 @@ namespace Viso
         private void UpdateMotion() { Motion.Reduced = Find<CheckBox>("ReduceMotion").IsChecked == true; if (!Motion.Enabled) Motion.StopAll(); Ring.ReducedMotion = !Motion.Enabled; Ring.UpdateMotion(); }
         private void OnSystemSettings(object sender, PropertyChangedEventArgs args) { if (!closed) window.Dispatcher.BeginInvoke(new Action(UpdateMotion)); }
         private void OnSessionSwitch(object sender, SessionSwitchEventArgs args) { if (args.Reason == SessionSwitchReason.SessionLock && !closed) window.Dispatcher.BeginInvoke(new Action(async delegate { await Suspend(); })); }
+        private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs args)
+        {
+            if (!closed && (args.Mode == PowerModes.Suspend || args.Mode == PowerModes.Resume))
+                window.Dispatcher.BeginInvoke(new Action(async delegate { await Suspend(); }));
+        }
         private void SavePreferences()
         {
             if (smoke) return;
@@ -553,8 +563,17 @@ namespace Viso
                 if (testedPortrait) SetPreview(DecodeBitmap(File.ReadAllBytes(fixture), 720));
                 Find<TextBox>("ProfileName").Text = "Native preview";
                 operation = "enrollment"; UpdateControls();
-                ApplyEnrollment(Json.Data("title", "Turn slightly to your left", "instruction", "Follow the light. Keep both eyes visible.", "message", "That's enough. Pause briefly…", "captured", 1, "step", "left", "hold_progress", .65, "state", "capturing", "guidance", Json.Data("yaw", 14, "pitch", 0)));
+                ApplyEnrollment(Json.Data("title", "Continue left and slightly up", "instruction", "Move gently around the circle. Keep both eyes visible.", "message", "That's enough. Pause briefly…", "captured", 2, "total", 17, "circuit", 1, "step", "up_left", "hold_progress", .65, "state", "capturing", "guidance", Json.Data("yaw", 10, "pitch", -7)));
                 Ring.Active = true; await Task.Delay(450); Snapshot(Path.Combine(output, "enrollment.png"));
+                ApplyEnrollment(Json.Data("title", "Continue slightly up and right", "instruction", "Make the second gentle circle. Blue sectors turn green.", "message", "View captured. Continue gently around the circle.", "captured", 12, "total", 17, "circuit", 2, "step", "up_right", "hold_progress", .45, "state", "capturing", "guidance", Json.Data("yaw", -10, "pitch", -7)));
+                await Task.Delay(450); Snapshot(Path.Combine(output, "enrollment-second.png"));
+                // Simulate power interruption without touching the physical
+                // camera: the real handler must revoke the operation/readout.
+                int beforeSuspend = epoch; cameraOn = true; timer.Start();
+                Find<PasswordBox>("SignInPassword").Password = "Synthetic only";
+                await Suspend();
+                if (epoch <= beforeSuspend || cameraOn || timer.IsEnabled || operation != "" || Ring.Active || Find<ImageBrush>("CameraPreview").ImageSource != null || Find<PasswordBox>("SignInPassword").Password != "")
+                    throw new InvalidOperationException("Power interruption retained camera, preview, timer, operation or account input.");
                 operation = ""; SetPreview(null); Find<TextBox>("ProfileName").Clear(); UpdateControls();
                 Find<CheckBox>("ReduceMotion").IsChecked = true;
                 EnrollmentSaved(); await Task.Delay(30);
@@ -589,7 +608,7 @@ namespace Viso
                     if (HasProfile) throw new InvalidOperationException("Profile deletion failed.");
                 }
                 await engine.Send("cancel"); await engine.Send("camera.stop");
-                File.WriteAllText(Path.Combine(output, "smoke.json"), Json.Encode(Json.Data("passed", true, "engine", status.Child("engine"), "real_portrait_enrollment_rejection_deletion", testedPortrait, "checks", new[] { "real worker initialization", "preview coverage, crop and mirroring", "profile name visibility and edit state", "five native pages", "enrollment visual state", "reduced motion completion", "minimum window size", "control gating", "real blank-frame inference", "Unicode IPC", "cancel and camera stop" })));
+                File.WriteAllText(Path.Combine(output, "smoke.json"), Json.Encode(Json.Data("passed", true, "engine", status.Child("engine"), "real_portrait_enrollment_rejection_deletion", testedPortrait, "checks", new[] { "real worker initialization", "preview coverage, crop and mirroring", "profile name visibility and edit state", "five native pages", "two-pass circular enrollment visual state", "eight-sector blue/green progress", "cached frozen ring resources", "reduced motion completion", "power interruption cleanup", "minimum window size", "control gating", "real blank-frame inference", "Unicode IPC", "cancel and camera stop" })));
                 window.Close();
             }
             catch (Exception error) { SmokeFail(error); }
@@ -609,7 +628,7 @@ namespace Viso
         {
             Find<PasswordBox>("SignInPassword").Clear();
             closed = true; epoch++; timer.Stop(); Ring.Active = false; Motion.StopAll();
-            SystemParameters.StaticPropertyChanged -= OnSystemSettings; SystemEvents.SessionSwitch -= OnSessionSwitch;
+            SystemParameters.StaticPropertyChanged -= OnSystemSettings; SystemEvents.SessionSwitch -= OnSessionSwitch; SystemEvents.PowerModeChanged -= OnPowerModeChanged;
             if (engine != null) { engine.Event -= EngineEvent; engine.Dispose(); }
             ClearImages(); lock (previewGate) nextPreview = null;
         }

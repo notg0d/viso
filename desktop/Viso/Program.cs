@@ -9,7 +9,7 @@ using System.Windows.Markup;
 
 [assembly: AssemblyTitle("Viso")]
 [assembly: AssemblyDescription("Native Windows face enrollment and recognition")]
-[assembly: AssemblyVersion("0.7.1.0")]
+[assembly: AssemblyVersion("0.8.1.0")]
 
 namespace Viso
 {
