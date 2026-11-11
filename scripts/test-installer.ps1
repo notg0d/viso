@@ -1,7 +1,7 @@
 param([string]$Payload)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$requestedPayload = $Payload
+$requestedPayload = if ($Payload) { [IO.Path]::GetFullPath($Payload) } else { $Payload }
 . (Join-Path $root 'installer\deploy.ps1')
 $Payload = $requestedPayload
 $writeJournal = ${function:Save-VisoTransaction}

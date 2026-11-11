@@ -1,6 +1,7 @@
 param([Parameter(Mandatory=$true)][string]$Bundle)
 $ErrorActionPreference = 'Stop'
 if (-not [Environment]::Is64BitProcess) { throw 'Use 64-bit PowerShell.' }
+$Bundle = [IO.Path]::GetFullPath($Bundle)
 $assembly = [Reflection.Assembly]::LoadFrom((Join-Path $Bundle 'Viso.exe'))
 if ($assembly.GetType('Viso.RenderingChecks', $false)) { throw 'Installer executable contains rendering-test helpers.' }
 $paths = $assembly.GetType('Viso.AppPaths', $true)
