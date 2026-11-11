@@ -567,7 +567,7 @@ namespace Viso
                 if (!diagnostics.Child("runtime").Flag("isolated") || diagnostics.Child("runtime").Number("bits") != 64 || diagnostics.Child("camera").Flag("running") || diagnostics.Get("profile") != null || diagnostics.Get("token") != null)
                     throw new InvalidOperationException("Runtime diagnostic isolation, privacy or camera-off state failed.");
                 var export = ActivityExport(diagnostics);
-                if (export.Text("desktop_version") != "0.8.1.0" || export.Text("windows_version") == "" || export.Child("diagnostics").Child("engine").Text("model") == "")
+                if (export.Text("desktop_version") != typeof(Program).Assembly.GetName().Version.ToString() || export.Text("windows_version") == "" || export.Child("diagnostics").Child("engine").Text("model") == "")
                     throw new InvalidOperationException("Activity export omitted version or model diagnostics.");
                 File.WriteAllText(Path.Combine(output, "diagnostics.json"), Json.Encode(export));
                 int beforeOldError = epoch; cameraOn = true; cameraGeneration = 41;
