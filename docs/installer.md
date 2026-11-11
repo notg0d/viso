@@ -6,7 +6,7 @@ The **0.8.2 source build** adds `Viso-0.8.2-Setup-x64.exe`, an all-in-one, admin
 
 ## What is included
 
-- Native desktop app, Start-menu shortcut, optional desktop shortcut, and Windows Installed apps uninstall entry.
+- Native desktop app, Start-menu shortcut, optional desktop shortcut, and Windows Installed apps uninstall entry. Viso's face-scan logo is embedded in the desktop and Setup executable, with 16-256px Windows icon sizes and a matching high-DPI window/header icon.
 - Private x64 Python interpreter, pinned dependency closure, recognition models, and upstream notices/licenses. Users need no Python, Visual Studio, Inno Setup, .NET SDK, or first-run model download.
 - x64 Credential Provider and automatic LocalSystem `VisoSignIn` service, using the same protected runtime.
 - Documentation, build provenance and a pinned SHA-256 payload manifest; a separate checksum accompanies the Setup executable. Included guide links work locally; references to unshipped development sources point to the build's pinned GitHub commit (publish that source commit before distributing those references).

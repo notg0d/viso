@@ -48,7 +48,7 @@
   <Grid Background="#141619">
     <Grid.RowDefinitions><RowDefinition Height="48"/><RowDefinition Height="*"/><RowDefinition Height="90"/></Grid.RowDefinitions>
     <Grid x:Name="TitleBar" Margin="22,0,8,0">
-      <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="viso" FontSize="23" FontWeight="Bold"/><TextBlock Text="·" Foreground="{StaticResource Accent}" FontSize="26" Margin="2,-3,0,0"/><TextBlock Text="FOR WINDOWS" Foreground="#6F7987" FontSize="9" FontWeight="SemiBold" Margin="14,10,0,0"/></StackPanel>
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image x:Name="BrandLogo" Width="24" Height="24" Margin="0,0,9,0" RenderOptions.BitmapScalingMode="HighQuality" Source="{Binding Icon, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" AutomationProperties.Name="Viso logo"/><TextBlock Text="viso" FontSize="23" FontWeight="Bold"/><TextBlock Text="·" Foreground="{StaticResource Accent}" FontSize="26" Margin="2,-3,0,0"/><TextBlock Text="FOR WINDOWS" Foreground="#6F7987" FontSize="9" FontWeight="SemiBold" Margin="14,10,0,0"/></StackPanel>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="MinimizeButton" Style="{StaticResource Caption}" Content="&#xE921;" AutomationProperties.Name="Minimize"/><Button x:Name="MaximizeButton" Style="{StaticResource Caption}" Content="&#xE922;" AutomationProperties.Name="Maximize or restore"/><Button x:Name="CloseButton" Style="{StaticResource Caption}" Content="&#xE8BB;" AutomationProperties.Name="Close"/></StackPanel>
     </Grid>
     <ScrollViewer x:Name="PageScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

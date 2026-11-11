@@ -37,6 +37,7 @@ namespace Viso
                     Window window;
                     using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Viso.MainWindow.xaml"))
                         window = (Window)XamlReader.Load(stream);
+                    window.Icon = AppIcon.Load();
                     var controller = new MainWindow(window, root, args.Contains("--ephemeral"), args.Contains("--smoke-test"));
                     app.Run(window);
                     GC.KeepAlive(controller);
