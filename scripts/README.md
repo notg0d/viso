@@ -14,6 +14,7 @@ Run commands from the repository root in PowerShell. Python scripts use `.venv\S
 | `build-release.ps1 [-OutputDirectory PATH] [-AllowDirty]` | Build runnable Windows ZIP and SHA-256 file. | Private Python/dependencies/models; no sign-in installer. Clean sources required unless explicitly building a local draft. [Release guide](../docs/releases.md). |
 | `build-installer.ps1 [-Compiler PATH] [-OutputDirectory PATH] [-AllowDirty]` | Build complete Windows Setup.exe, checksum and provenance. | Desktop + private runtime/models + Windows sign-in. Inno Setup is build-only; requires clean committed sources for publication. [Installer guide](../docs/installer.md). |
 | `package-runtime.py ROOT DESTINATION` | Copy the installed dependency closure into a private runtime. | Called by packaging helpers with the project's `.venv` Python; keeps notices, excludes caches/test folders/pip/unrelated packages. |
+| `package-installer-docs.py ROOT BUNDLE SOURCE_COMMIT` | Keep bundled guide links usable without copying development sources. | Build-only; source-only references become commit-pinned GitHub links. Included guide links stay local. |
 | `download_models.py` | Download pinned models and upstream notices; verify SHA-256. | Writes ignored weights/licenses under `models/`. |
 
 ## Validation and evidence
