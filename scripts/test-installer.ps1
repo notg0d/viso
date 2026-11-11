@@ -202,6 +202,8 @@ try {
         $manifestHash = (Get-FileHash $manifest -Algorithm SHA256).Hash
         $verified = Get-VisoPayloadManifest $Payload $manifestHash
         Check ($verified.files.Count -gt 1000) 'Full bundled runtime was not present.'
+        & (Join-Path $root '.venv\Scripts\python.exe') -I -B (Join-Path $PSScriptRoot 'check-docs.py') $Payload
+        Check ($LASTEXITCODE -eq 0) 'Bundled installer documentation has broken local links/assets.'
         & (Join-Path $root 'signin\bin\ServiceTests.exe') --runtime $Payload
         if ($LASTEXITCODE -ne 0) { throw 'Installer runtime checks failed.' }
     }

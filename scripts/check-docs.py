@@ -10,7 +10,7 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 IGNORED = {
     ".git", ".venv", ".viso", ".fixtures", ".pytest_cache", "__pycache__",
-    "node_modules", "dist", "bin", "test-results", "playwright-report",
+    "node_modules", "dist", "bin", "releases", "test-results", "playwright-report",
 }
 
 
@@ -103,4 +103,6 @@ def check(root: Path = ROOT) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(check())
+    if len(sys.argv) > 2:
+        raise SystemExit("Usage: check-docs.py [ROOT]")
+    raise SystemExit(check(Path(sys.argv[1]).resolve() if len(sys.argv) == 2 else ROOT))
