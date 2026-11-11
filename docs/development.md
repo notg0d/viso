@@ -19,7 +19,7 @@
 | [`experiments/browser/` on `test`](https://github.com/notg0d/viso/blob/test/experiments/browser/README.md) | Historical React/TypeScript/Vite bench with its own package and lockfile; not on `main`. |
 | [`docs/`](README.md) | Guides, reference, validation records, research, and historical notes. |
 
-The native startup code discovers the root by finding `backend/`. Keep `desktop/`, `backend/`, `signin/Shared/`, `.venv/`, and `models/` in their documented locations. Do not relocate local data or generated outputs as part of routine cleanup.
+The native startup code discovers the root by finding `backend/run_native.py`. In source checkouts, keep `desktop/`, `backend/`, `signin/Shared/`, `.venv/`, and `models/` in their documented locations. Release ZIPs keep `Viso.exe` at the root and substitute a private `runtime/` for `.venv/`. Do not relocate local data as part of routine cleanup.
 
 ## Build the native desktop
 
@@ -34,6 +34,8 @@ From PowerShell in the repository root:
 No Node.js or .NET SDK is needed. The x64 build uses the installed .NET Framework compiler and embeds `MainWindow.xaml`. Normal builds exclude rendering-test helpers. Close the app before replacing `desktop\bin\Viso.exe`.
 
 Python dependency versions are in `requirements.txt`; model versions/hashes are in `models/manifest.json`. Setup deliberately removes the competing `opencv-python-headless` distribution before installing the single contrib wheel required by MediaPipe.
+
+For a directly runnable Windows bundle, use `scripts/build-release.ps1` from committed sources. [Packaging, provenance, and extracted-artifact validation](releases.md#build-an-artifact).
 
 ## Validate changes
 
@@ -80,7 +82,7 @@ The optional Python HTTP host serves `experiments/browser/dist/`. The old root `
 
 ## Generated files and local state
 
-Ignored paths include `.venv/`, `.viso/`, `node_modules/`, `dist/`, model weights/licenses, Python/TypeScript caches, `desktop/bin/`, `signin/bin/`, `tests/.fixtures/`, and `test-results/`. The dependency/build ignore patterns also cover the nested browser package.
+Ignored paths include `.venv/`, `.viso/`, `node_modules/`, `dist/`, model weights/licenses, Python/TypeScript caches, `desktop/bin/`, `desktop/releases/`, `signin/bin/`, `tests/.fixtures/`, and `test-results/`. The dependency/build ignore patterns also cover the nested browser package.
 
 Existing root `node_modules/`, `dist/`, and `tsconfig.tsbuildinfo` can remain from the former browser layout; the reorganization does not delete or move them. Fresh browser installs/builds belong under `experiments/browser/`. Native paths and local enrollment/account links are unchanged.
 

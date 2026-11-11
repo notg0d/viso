@@ -8,6 +8,14 @@ Recorded on **2026-11-11, `test` branch**. Desktop **0.8.1** and installed sign-
 
 The documentation/browser-layout update adds two static-host regressions to the 111-test hotfix baseline. Commands below use temporary or memory-only test state; a passing suite does not authorize installation or establish biometric accuracy.
 
+## 0.8.1 runnable Windows packaging
+
+[Release packaging](releases.md) adds a private Python runtime, dependency/model notices, provenance and hash manifests, and an isolated worker entry point. Extraction testing reproduced OpenCV's Unicode Windows filename failure; verified model buffers now avoid that path API. Recognition rules and model/dependency pins are unchanged.
+
+The package gate extracts the actual production ZIP outside the repository, into a spaces/Unicode path, with an unrelated working directory. It checks payload hashes/exclusions, exact dependency inventory, poisoned Python environment isolation, blank/portrait inference, synthetic DPAPI persistence, image enrollment/photo rejection over private IPC, the actual production `EngineClient`, WPF model-ready startup in ephemeral and normal modes, and graceful child cleanup. Test sources/helpers are never placed in the ZIP or `main`.
+
+Source checks include the existing **113 Python tests**, six synthetic dependency-packager regressions, the **63 WPF raster/resource cases**, and the **25 packaged service-to-Python checks** for the shared packaging helper. No physical camera, installed service/provider changes, real account credentials, or existing enrollment is used. Final artifact validation must pass from committed production sources before upload. A separate clean Windows machine and physical current-build authentication are not covered.
+
 ## 0.8.1 desktop unlock-rendering hotfix
 
 The user's 0.8.0 Unlock test crash was identified in Windows' .NET Runtime event log as `IndexOutOfRangeException` in `EnrollmentRing.OnRender`. Fast valid identity frames can produce `streak > required` while the 150 ms time gate is still pending; an unclamped progress ratio overran the cached pen palette. A new WPF regression reproduced the same exception before the fix.

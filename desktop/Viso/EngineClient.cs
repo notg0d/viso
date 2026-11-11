@@ -40,9 +40,11 @@ namespace Viso
 
         public EngineClient(string root, bool ephemeral)
         {
-            string python = Path.Combine(root, ".venv", "Scripts", "python.exe");
-            if (!File.Exists(python)) throw new FileNotFoundException("Run scripts\\setup.ps1 to prepare the recognition engine.");
-            process = new Process { StartInfo = new ProcessStartInfo(python, "-u -m backend.viso.native" + (ephemeral ? " --ephemeral" : "")) {
+            string python = Path.Combine(root, "runtime", "python.exe");
+            if (!File.Exists(python)) python = Path.Combine(root, ".venv", "Scripts", "python.exe");
+            string worker = Path.Combine(root, "backend", "run_native.py");
+            if (!File.Exists(python) || !File.Exists(worker)) throw new FileNotFoundException("Extract the entire Viso release ZIP, or run scripts\\setup.ps1 in a source checkout.");
+            process = new Process { StartInfo = new ProcessStartInfo(python, "-I -B -u \"" + worker + "\"" + (ephemeral ? " --ephemeral" : "")) {
                 WorkingDirectory = root, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
                 StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8

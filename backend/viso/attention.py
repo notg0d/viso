@@ -149,7 +149,7 @@ class AttentionEngine:
         self.mp = mp
         self.landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(
             mp.tasks.vision.FaceLandmarkerOptions(
-                base_options=mp.tasks.BaseOptions(model_asset_path=str(model_dir / "face_landmarker.task")),
+                base_options=mp.tasks.BaseOptions(model_asset_buffer=(model_dir / "face_landmarker.task").read_bytes()),
                 running_mode=mp.tasks.vision.RunningMode.IMAGE,
                 num_faces=2,
                 min_face_detection_confidence=.65,

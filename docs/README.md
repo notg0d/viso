@@ -9,6 +9,7 @@ Start with the desktop. Install Windows sign-in only after reading its separate 
 | Guide | You'll find |
 | :--- | :--- |
 | [Getting started](getting-started.md) | Requirements, setup, two-circle enrollment, unlock simulator, photo lab, and controls. |
+| [Windows releases](releases.md) | Runnable ZIP, checksum verification, requirements, local-state updates, and artifact builds. |
 | [Windows sign-in](windows-signin.md) | Account support, administrator installation, explicit linking, upgrades, disable/removal, and diagnostics. |
 | [Troubleshooting](troubleshooting.md) | Camera, models, builds, profiles, blink confirmation, and sign-in failures. |
 
@@ -37,6 +38,6 @@ Start with the desktop. Install Windows sign-in only after reading its separate 
 
 ## Read the status correctly
 
-The latest recorded snapshot is **2026-11-11**: desktop **0.8.1**, separately installed sign-in **0.8.0** on the development machine. Changes were developed/validated on `test`; production source and documentation are synchronized to `main`. Regression sources, runners/fixtures, benchmarks, and the historical browser bench remain **test-only**. These records are not a tagged release or general certification.
+The latest recorded snapshot is **2026-11-11**: desktop **0.8.1**, separately installed sign-in **0.8.0** on the development machine. The desktop has an [experimental Windows ZIP release](releases.md), not a sign-in installer or general certification. Changes were developed/validated on `test`; production source and documentation are synchronized to `main`. Regression sources, runners/fixtures, benchmarks, and the historical browser bench remain **test-only**.
 
 Automated checks use synthetic state, temporary storage, and public portrait fixtures; they do not prove physical-camera accuracy or replay resistance. Earlier successful local-account unlocks do not validate the current sign-in build. See the [current evidence and remaining gates](testing.md).

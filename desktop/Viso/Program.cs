@@ -21,10 +21,10 @@ namespace Viso
             try
             {
                 string root = AppDomain.CurrentDomain.BaseDirectory;
-                while (!Directory.Exists(Path.Combine(root, "backend")))
+                while (!File.Exists(Path.Combine(root, "backend", "run_native.py")))
                 {
                     var parent = Directory.GetParent(root);
-                    if (parent == null) throw new DirectoryNotFoundException("Keep Viso.exe in the Viso project folder.");
+                    if (parent == null) throw new DirectoryNotFoundException("Extract the entire Viso release ZIP and keep its folders beside Viso.exe, or build from a complete source checkout.");
                     root = parent.FullName;
                 }
                 string instanceKey;

@@ -8,7 +8,7 @@ A native Windows face-recognition experience.<br>Two gentle circles to enroll. A
 
 [![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-2997ff?style=flat-square)](docs/getting-started.md) [![Desktop](https://img.shields.io/badge/Desktop-0.8.1-63cbb0?style=flat-square)](CHANGELOG.md) [![Runtime](https://img.shields.io/badge/Native-C%23%20%2B%20WPF-7d8ca4?style=flat-square)](docs/architecture.md) [![Status](https://img.shields.io/badge/Status-experimental-d5a75e?style=flat-square)](docs/security.md)
 
-[**Get started**](#quick-start) · [**Documentation**](docs/README.md) · [**Windows sign-in**](docs/windows-signin.md) · [**What's new**](CHANGELOG.md)
+[**Download for Windows**](https://github.com/notg0d/viso/releases/tag/v0.8.1) · [**Get started**](#quick-start) · [**Documentation**](docs/README.md) · [**What's new**](CHANGELOG.md)
 
 <br>
 
@@ -33,6 +33,12 @@ Viso pairs a **native C#/WPF desktop** with a local Python recognition worker. E
 
 ## Quick start
 
+**[Download the Windows x64 ZIP](https://github.com/notg0d/viso/releases/download/v0.8.1/Viso-0.8.1-windows-x64.zip)**, extract the **entire archive** to a user-writable folder, and open **`Viso.exe`**. Python and the models are included; no setup script, administrator installation, or first-run download is needed. Requires Windows 10/11 x64 and **.NET Framework 4.8**.
+
+The experimental executable is unsigned; SmartScreen may warn. Keep `runtime/`, `backend/`, `models/`, and the configuration beside the executable. **This is the desktop simulator, not a Windows sign-in installer.** [Download, verification, and updates →](docs/releases.md)
+
+### Build from source instead
+
 **64-bit Windows 10/11 · .NET Framework 4.8 · Python 3.11+**<br>Development is verified with Python 3.14; compatible wheels are required for the pinned dependencies. Use PowerShell from the repository root.
 
 ```powershell
@@ -49,7 +55,7 @@ Setup needs internet access; the models total about **43 MB**. Recognition runs 
 2. **Verify** — Open **Unlock test → Test face unlock**. Look at the camera, blink when prompted, and reopen both eyes. Every attempt needs a fresh blink.
 3. **Keep it** — Close Viso, then run `.\scripts\start.ps1` without `-Ephemeral` and enroll again to save it. Memory-only enrollment is not carried over.
 
-The executable is `desktop\bin\Viso.exe`; keep it inside the project so it can find the environment and models. Closing Viso releases its camera and worker. [Full walkthrough, photo lab, and controls →](docs/getting-started.md)
+The source-built executable is `desktop\bin\Viso.exe`; keep it inside the project so it can find the environment and models. The ZIP supports memory-only enrollment with `.\Viso.exe --ephemeral`. Closing Viso releases its camera and worker. [Full walkthrough, photo lab, and controls →](docs/getting-started.md)
 
 ## One app. Five focused spaces.
 

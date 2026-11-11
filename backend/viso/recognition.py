@@ -133,16 +133,20 @@ class FaceEngine:
         for model in manifest["models"]:
             path = model_dir / model["file"]
             if not path.exists():
-                raise RuntimeError("Models are missing. Run .\\scripts\\setup.ps1.")
+                raise RuntimeError("Models are missing. Extract the entire Viso release ZIP, or run scripts\\setup.ps1 in a source checkout.")
             with path.open("rb") as source:
                 if hashlib.file_digest(source, "sha256").hexdigest() != model["sha256"]:
-                    raise RuntimeError(f"Model checksum failed: {path.name}. Re-run setup.")
+                    raise RuntimeError(f"Model checksum failed: {path.name}. Extract a verified Viso release ZIP again, or re-run source setup.")
         cv2.setNumThreads(min(os.cpu_count() or 2, 4))
+        # OpenCV's filename overload uses narrow Windows paths. Python reads
+        # Unicode paths correctly; the buffer overload keeps models in memory.
+        empty_config = np.empty(0, dtype=np.uint8)
         self.detector = cv2.FaceDetectorYN.create(
-            str(model_dir / "face_detection_yunet_2023mar.onnx"), "", (320, 320), 0.85, 0.3, 1000
+            "onnx", np.frombuffer((model_dir / "face_detection_yunet_2023mar.onnx").read_bytes(), dtype=np.uint8),
+            empty_config, (320, 320), 0.85, 0.3, 1000
         )
         self.recognizer = cv2.FaceRecognizerSF.create(
-            str(model_dir / "face_recognition_sface_2021dec.onnx"), ""
+            "onnx", np.frombuffer((model_dir / "face_recognition_sface_2021dec.onnx").read_bytes(), dtype=np.uint8), empty_config
         )
         self.attention = AttentionEngine(model_dir)
 
