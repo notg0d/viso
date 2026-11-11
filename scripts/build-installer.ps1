@@ -88,7 +88,11 @@ $manifest = [ordered]@{ format = 1; version = $version; files = $entries }
 $manifestPath = Join-Path $bundle 'installer\payload.json'
 [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 5) + "`n", $utf8)
 $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
-& (Join-Path $root 'installer\deploy.ps1') -Action ValidatePayload -Payload $bundle -ExpectedManifestHash $manifestHash
+# The build shell can itself be 32-bit; verify through the same native x64
+# Windows PowerShell required by Setup rather than weakening the helper gate.
+$systemDirectory = if ([Environment]::Is64BitProcess) { 'System32' } else { 'Sysnative' }
+$powerShell = Join-Path $env:WINDIR "$systemDirectory\WindowsPowerShell\v1.0\powershell.exe"
+& $powerShell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $root 'installer\deploy.ps1') -Action ValidatePayload -Payload $bundle -ExpectedManifestHash $manifestHash
 if ($LASTEXITCODE -ne 0) { throw 'Installer payload validation failed.' }
 if (-not $AllowDirty) {
     if ((& git -C $root rev-parse HEAD).Trim() -ne $commit -or @(& git -C $root status --porcelain).Count) { throw 'Sources changed while building. Rebuild from committed sources.' }
