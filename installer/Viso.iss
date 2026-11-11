@@ -34,6 +34,7 @@ SolidCompression=yes
 WizardStyle=modern
 DisableWelcomePage=no
 InfoBeforeFile=setup-info.txt
+SetupIconFile={#PayloadRoot}\Viso.ico
 UninstallDisplayIcon={app}\Viso.exe
 CloseApplications=no
 RestartApplications=no
@@ -49,8 +50,8 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 Source: "{#PayloadRoot}\*"; DestDir: "{tmp}\payload"; Flags: dontcopy recursesubdirs
 
 [Icons]
-Name: "{commonprograms}\Viso"; Filename: "{app}\Viso.exe"; WorkingDir: "{app}"
-Name: "{commondesktop}\Viso"; Filename: "{app}\Viso.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{commonprograms}\Viso"; Filename: "{app}\Viso.exe"; WorkingDir: "{app}"; IconFilename: "{app}\Viso.exe"; IconIndex: 0
+Name: "{commondesktop}\Viso"; Filename: "{app}\Viso.exe"; WorkingDir: "{app}"; IconFilename: "{app}\Viso.exe"; IconIndex: 0; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\Viso.exe"; Description: "Open Viso to enroll and link your Windows account"; Flags: nowait postinstall skipifsilent runasoriginaluser

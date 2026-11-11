@@ -8,8 +8,10 @@ $source = Join-Path $root 'desktop\Viso'
 if ($SmokeTest -and -not (Test-Path "$source\RenderingChecks.cs")) { throw 'Smoke checks are maintained on the test branch.' }
 $output = if ($OutputDirectory) { [IO.Path]::GetFullPath($OutputDirectory) } else { Join-Path $root 'desktop\bin' }
 New-Item -ItemType Directory -Path $output -Force | Out-Null
+$icon = Join-Path $output 'Viso.ico'
+& (Join-Path $PSScriptRoot 'build-icon.ps1') -OutputPath $icon
 $references = @('System.dll', 'System.Core.dll', 'System.Security.dll', 'System.Xaml.dll', 'System.Web.Extensions.dll', 'WPF\WindowsBase.dll', 'WPF\PresentationCore.dll', 'WPF\PresentationFramework.dll')
-$arguments = @('/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/utf8output', "/out:$output\Viso.exe", "/win32manifest:$source\app.manifest", "/resource:$source\MainWindow.xaml,Viso.MainWindow.xaml")
+$arguments = @('/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/utf8output', "/out:$output\Viso.exe", "/win32manifest:$source\app.manifest", "/win32icon:$icon", "/resource:$icon,Viso.AppIcon.ico", "/resource:$source\MainWindow.xaml,Viso.MainWindow.xaml")
 foreach ($reference in $references) { $arguments += '/reference:' + (Join-Path $framework $reference) }
 $arguments += (Get-ChildItem $source -Filter '*.cs' | Where-Object { $SmokeTest -or $_.Name -ne 'RenderingChecks.cs' }).FullName
 if ($SmokeTest) { $arguments += '/define:VISO_TESTS' }

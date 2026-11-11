@@ -11,6 +11,7 @@ Run commands from the repository root in PowerShell. Python scripts use `.venv\S
 | `setup.ps1 [-SkipBuild]` | Create environment, install pinned packages, verify/download models, build desktop. | Needs Python and internet; no administrator installation. |
 | `start.ps1 [-Ephemeral]` | Rebuild stale/missing native executable and launch. | Memory-only enrollment with `-Ephemeral`; normal launch uses current-user DPAPI. |
 | `build-native.ps1 [-SmokeTest] [-OutputDirectory PATH]` | Build x64 C#/WPF executable. | .NET Framework 4.8; close running app first. Smoke uses synthetic/temp state, not a physical camera. |
+| `build-icon.ps1 -OutputPath PATH` | Rasterize Viso's existing face-scan logo into a multi-resolution Windows ICO. | Build-only WPF/.NET rendering, 16-256px; embedded by the desktop and Setup builds. No graphics dependency/download. |
 | `build-release.ps1 [-OutputDirectory PATH] [-AllowDirty]` | Build runnable Windows ZIP and SHA-256 file. | Private Python/dependencies/models; no sign-in installer. Clean sources required unless explicitly building a local draft. [Release guide](../docs/releases.md). |
 | `build-installer.ps1 [-Compiler PATH] [-OutputDirectory PATH] [-AllowDirty]` | Build complete Windows Setup.exe, checksum and provenance. | Desktop + private runtime/models + Windows sign-in. Inno Setup is build-only; requires clean committed sources for publication. [Installer guide](../docs/installer.md). |
 | `package-runtime.py ROOT DESTINATION` | Copy the installed dependency closure into a private runtime. | Called by packaging helpers with the project's `.venv` Python; keeps notices, excludes caches/test folders/pip/unrelated packages. |
@@ -30,6 +31,7 @@ Run commands from the repository root in PowerShell. Python scripts use `.venv\S
 | `test-release.ps1 -Archive PATH [-AllowDirty]` | Validate a ZIP after extraction outside the repository. | Runtime isolation, hashes/exclusions, inference, production client, WPF startup and cleanup; spaces/Unicode paths. Test-only desktop helper stays outside the ZIP. |
 | `test-installer.ps1 [-Payload PATH]` | Validate manifest safety and simulated installer lifecycle; optionally actual bundled service runtime. | Synthetic temporary folders/HKCU sandbox and mocked service operations; never installs real sign-in components. |
 | `test-installer-desktop.ps1 -Bundle PATH` | Validate installed/portable storage selection and explicit desktop data-directory IPC. | Use x64 PowerShell; actual bundled engine, spaces/Unicode path, camera-off startup and synthetic temporary DPAPI save/delete. |
+| `test-app-icon.ps1 -Bundle PATH [-Installer PATH]` | Check all ten Windows logo sizes, native executable/window icons and title-bar branding. | Native x64 Windows PowerShell `-STA`; checks the embedded resources and reproducible icon generation without starting the app controller/camera or installing anything. |
 
 ## Optional privileged deployment
 
