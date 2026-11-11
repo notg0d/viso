@@ -24,7 +24,7 @@ Windows Hello PINs are device-specific credentials and cannot replace the accoun
 
 ## Build and install
 
-The **0.8.2 source build** can also produce a [complete Windows Setup.exe](installer.md) containing the desktop, private Python/models and these sign-in components. End users need no source checkout, Python or C++ build tools. They must still explicitly enroll/link their own account after installation. The existing source-based workflow below remains supported.
+The [**v0.8.2 experimental release**](https://github.com/notg0d/viso/releases/tag/v0.8.2) provides a [complete Windows Setup.exe](installer.md) containing the desktop, private Python/models and these sign-in components. End users need no source checkout, Python or C++ build tools. First-time users must still explicitly enroll/link their own account after installation. The **source-based workflow below** remains supported and has additional build prerequisites.
 
 Requirements: x64 Windows 10/11, .NET Framework 4.8, the Python dependencies/models installed by `setup.ps1`, Visual Studio x64 C++ Build Tools, and a Windows SDK with Credential Provider headers. Windows on ARM is not supported by this DLL build.
 
@@ -47,7 +47,7 @@ The installer creates protected directories atomically. Retained `%ProgramData%\
 
 ## Link and use
 
-1. Launch `scripts/start.ps1` without `-Ephemeral` and save a two-circle **camera** enrollment. Photo-lab and memory-only enrollment cannot enable Windows sign-in. Existing complete five-view profiles still work, but re-enroll to acquire the new direction coverage.
+1. Open installed Viso from the Start menu, or launch `scripts/start.ps1` without `-Ephemeral` for a source build, and save a two-circle **camera** enrollment. Photo-lab and memory-only enrollment cannot enable Windows sign-in. Existing complete five-view profiles still work; re-enroll/relink only when intentionally changing the saved snapshot for new direction coverage.
 2. In **Settings**, select the desired camera. Under **Windows face sign-in**, choose the account type, enter its username/email and password, and click **Link / update account**.
 3. Use **Refresh status** to confirm the account is linked. Password fields clear after a link attempt, when leaving Settings, on minimize/session lock, and on close.
 4. Lock Windows. Choose **Sign-in options → Viso Face**. Selection starts the scan automatically. Look ahead with eyes open, blink after the displayed prompt, and reopen both eyes. After a failure, select the arrow to retry or switch sign-in options.

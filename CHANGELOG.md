@@ -2,15 +2,19 @@
 
 [Project overview](README.md) · [Validation evidence](docs/testing.md) · [Measurements](docs/performance.md)
 
-The 0.8.1 desktop has an experimental Windows ZIP release; earlier entries describe development builds. Work is validated on `test`, then production source/documentation is synchronized to `main` without test sources, runners/fixtures, benchmarks, or the historical browser bench. Desktop and separately installed sign-in components can have different versions.
+The [0.8.2 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.2) and unchanged [0.8.1 desktop-only ZIP](https://github.com/notg0d/viso/releases/tag/v0.8.1) are experimental pre-releases; earlier entries describe development builds. Work is validated on `test`, then production source/documentation is synchronized to `main` without test sources, runners/fixtures, benchmarks, or the historical browser bench. Desktop and separately installed sign-in components can have different versions.
 
-## 0.8.2 — complete Windows installer (not yet published)
+## 0.8.2 — complete Windows installer (experimental pre-release)
 
 - All-in-one Inno Setup executable includes the desktop, private Python/dependencies, pinned models/notices and Windows sign-in provider/service. No end-user source/Python/compiler setup.
 - Protected manifest-verified staging, fixed Program Files destination, retained encrypted account links, directory-swap upgrade backup/recovery, shortcuts and Installed apps uninstall support. Password/PIN providers remain untouched; experimental sign-in requires explicit consent.
 - Installed desktop uses per-Windows-user `%LOCALAPPDATA%\Viso` for enrollment/preferences and account-link import. Source/portable `.viso` locations remain unchanged. Setup does not enroll, collect a password, link an account or open the camera.
 - Uninstall offers account-link retention, keeps desktop enrollment and retires locked payload files at reboot. Reinstall is blocked while Viso file deletion is pending. Build-only Inno Setup is not an application dependency. [Full installer guide](docs/installer.md).
-- Building this installer does not install/publish it or modify the existing immutable v0.8.1 release. Clean-machine install/upgrade/uninstall/reboot and current-build physical authentication remain release gates.
+- Fixed Inno 7's redirected 32-bit PowerShell launch: Setup/uninstall explicitly start native x64 Windows PowerShell and isolate helpers to built-in modules, preserving architecture/administrator gates.
+- Embedded Viso's face-scan logo in desktop/window/taskbar and Setup resources, explicit shortcut icons and the high-DPI header; reproducible build-only ICO generation covers ten sizes from 16 to 256px.
+- Published four assets from clean production commit `3f35b09`: Setup executable, SHA-256, provenance and pre-publication validation record. `v0.8.2` remains pinned to that build even as shared documentation is updated later; validation sources remain on `test` at `191ebfc`.
+- Exact-build validation: 67 app/Setup icon checks, 51 installer checks, 20 actual non-installing Inno launch checks, 140 Python tests, 63 native raster/resource cases, 25 bundled service-to-Python checks and 129 bundled local documentation links/assets. Production desktop startup/state IPC/synthetic DPAPI and worker cleanup passed from a spaces/Unicode path.
+- GitHub publication does not install anything or modify the existing v0.8.1 release. Final elevated embedded-executable verification, clean-machine install/upgrade/live rollback/uninstall/reboot and current-build physical authentication remain open gates; see [validation scope](docs/testing.md#082-complete-installer).
 
 ### Camera compatibility and diagnostics
 

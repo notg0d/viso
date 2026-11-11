@@ -83,11 +83,24 @@ On `test`, the browser package is isolated in `experiments/browser/`, not a root
 
 The optional Python HTTP host serves `experiments/browser/dist/`. The old root `dist/` is not served. Vite remains on `127.0.0.1:5173` and proxies `/api` to `127.0.0.1:8765`. The archived browser's five-pose guidance is **not** the current circular-enrollment UI.
 
+## Branch and release workflow
+
+| Branch | Keep here |
+| :--- | :--- |
+| `main` | Production app/backend/sign-in/installer code, build/deployment entry points and shared docs. |
+| `test` | Production implementation plus regression sources, test/fixture runners, benchmarks and `experiments/browser/`. |
+
+Develop and validate on `test`, committing production changes separately from test-only work. Promote only the production/documentation commits to `main` with selective cherry-picks; never merge all of `test` into `main`. Preserve deliberate smoke-only assertions and branch-specific ignore rules. Check `git diff main test` before pushing: production differences require explanation; added test/bench files must remain test-only.
+
+Build publishable artifacts from a **clean production commit**, run the applicable artifact checks using `test` tools without embedding those tools, and publish the source commit before distributing bundled commit-pinned links. Tag the exact build commit. A later documentation cleanup does not move a release tag or change provenance; the v0.8.2 tag remains on `3f35b09` and the original v0.8.1 release stays unchanged.
+
+Release assets belong on GitHub Releases, not in source commits. For the complete installer, upload only Setup.exe, `.sha256`, provenance `.json` and the exact-build validation `.json`; exclude payload staging, superseded installers, profiles, credentials, models downloaded outside a release and development environments. Keep experimental status and unverified manual gates explicit. Branch/release publication never authorizes installation.
+
 ## Generated files and local state
 
 Ignored paths include `.venv/`, `.viso/`, `node_modules/`, `dist/`, model weights/licenses, Python/TypeScript caches, `desktop/bin/`, `desktop/releases/`, `signin/bin/`, `tests/.fixtures/`, and `test-results/`. The dependency/build ignore patterns also cover the nested browser package.
 
-Existing root `node_modules/`, `dist/`, and `tsconfig.tsbuildinfo` can remain from the former browser layout; the reorganization does not delete or move them. Fresh browser installs/builds belong under `experiments/browser/`. Native paths and local enrollment/account links are unchanged.
+Existing ignored root `src/`, `node_modules/`, `dist/`, and `tsconfig.tsbuildinfo` can remain from the former browser layout; they are not published as production source. Fresh browser installs/builds belong under `experiments/browser/`. Repository cleanup must not delete `.viso/`, `%LOCALAPPDATA%\Viso`, protected account records, a working environment, release artifacts or unfamiliar user work. Native paths and local enrollment/account links are unchanged.
 
 ## Documentation conventions
 

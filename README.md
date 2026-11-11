@@ -6,9 +6,9 @@
 
 A native Windows face-recognition experience.<br>Two gentle circles to enroll. A fresh blink to verify. Processing stays on your PC.
 
-[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-2997ff?style=flat-square)](docs/getting-started.md) [![Desktop](https://img.shields.io/badge/Desktop-0.8.2%20source-63cbb0?style=flat-square)](CHANGELOG.md) [![Runtime](https://img.shields.io/badge/Native-C%23%20%2B%20WPF-7d8ca4?style=flat-square)](docs/architecture.md) [![Status](https://img.shields.io/badge/Status-experimental-d5a75e?style=flat-square)](docs/security.md)
+[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-2997ff?style=flat-square)](docs/getting-started.md) [![Desktop](https://img.shields.io/badge/Desktop-0.8.2-63cbb0?style=flat-square)](CHANGELOG.md) [![Runtime](https://img.shields.io/badge/Native-C%23%20%2B%20WPF-7d8ca4?style=flat-square)](docs/architecture.md) [![Status](https://img.shields.io/badge/Status-experimental-d5a75e?style=flat-square)](docs/security.md)
 
-[**Download for Windows**](https://github.com/notg0d/viso/releases/tag/v0.8.1) · [**Get started**](#quick-start) · [**Documentation**](docs/README.md) · [**What's new**](CHANGELOG.md)
+[**Download for Windows**](https://github.com/notg0d/viso/releases/tag/v0.8.2) · [**Get started**](#quick-start) · [**Documentation**](docs/README.md) · [**What's new**](CHANGELOG.md)
 
 <br>
 
@@ -29,13 +29,15 @@ Viso pairs a **native C#/WPF desktop** with a local Python recognition worker. E
 | Neutral calibration, then two eight-direction circles: **17 averaged views**, at least **51 distinct open-eye observations**. | Recognition runs locally. Keep one DPAPI-encrypted enrollment, or try a memory-only session. | Camera controls, file dialogs, keyboard navigation, measured ring feedback, and reduced-motion support. |
 
 > [!IMPORTANT]
-> **Unlock test is a simulator, not the Windows lock screen.** Real Windows sign-in requires the separately installed prototype. Viso uses experimental RGB recognition—not TrueDepth, proven replay protection, or Windows Hello certification. [Security and limitations →](docs/security.md)
+> **Unlock test is a simulator, not the Windows lock screen.** The complete installer additionally installs the experimental Windows sign-in prototype, with explicit consent. Viso uses RGB recognition—not TrueDepth, proven replay protection, or Windows Hello certification. Keep working password/PIN access. [Security and limitations →](docs/security.md)
 
 ## Quick start
 
-**[Download the Windows x64 ZIP](https://github.com/notg0d/viso/releases/download/v0.8.1/Viso-0.8.1-windows-x64.zip)**, extract the **entire archive** to a user-writable folder, and open **`Viso.exe`**. Python and the models are included; no setup script, administrator installation, or first-run download is needed. Requires Windows 10/11 x64 and **.NET Framework 4.8**.
+**[Download the complete Windows x64 installer](https://github.com/notg0d/viso/releases/download/v0.8.2/Viso-0.8.2-Setup-x64.exe)** and its [checksum](https://github.com/notg0d/viso/releases/download/v0.8.2/Viso-0.8.2-Setup-x64.exe.sha256). [Verify the download](docs/releases.md#verify-the-download), close Viso, run Setup and approve its administrator prompt and experimental-sign-in warning. Open Viso from the Start menu as your ordinary Windows user.
 
-The experimental executable is unsigned; SmartScreen may warn. Keep `runtime/`, `backend/`, `models/`, and the configuration beside the executable. **This is the desktop simulator, not a Windows sign-in installer.** [Download, verification, and updates →](docs/releases.md)
+Desktop, Python, dependencies, models and sign-in components are included. Requires **Windows 10/11 x64 and .NET Framework 4.8**; Windows on ARM is unsupported. Setup does not enroll faces or collect/link credentials. First-time users enroll and explicitly link their account in Settings. This unsigned **experimental pre-release** has [open installation/authentication validation gates](docs/testing.md#082-complete-installer).
+
+**Desktop only, without a sign-in installation?** The unchanged [v0.8.1 portable ZIP](https://github.com/notg0d/viso/releases/tag/v0.8.1) remains available. Extract the entire archive to a user-writable folder and open `Viso.exe`; no administrator installation is needed. [Downloads, storage, verification and updates →](docs/releases.md)
 
 ### Build from source instead
 
@@ -78,11 +80,11 @@ Automated native UI capture; no live-camera verification is pictured.
 
 ## Optional Windows sign-in
 
-**Want one installer with everything?** The 0.8.2 source build adds a [complete Windows Setup.exe](docs/installer.md): desktop, private Python/models and Windows sign-in components, with upgrade/removal support. It has not yet been published; the existing v0.8.1 download remains desktop-only. Users still enroll and explicitly link their own account from Viso Settings.
+The [v0.8.2 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.2) includes desktop, private Python/models and Windows sign-in components, with protected upgrade/removal support and matching Windows app/Setup logos. Read the [installer guide](docs/installer.md) before approving installation. Users still enroll and explicitly link their own account from Viso Settings.
 
 The x64 Credential Provider and LocalSystem service can submit a Windows credential after fresh face/blink verification. Local and personal Microsoft accounts are supported by the implementation; **current-build physical authentication, Microsoft-account, multi-user, reboot, and long-sleep validation remain open**.
 
-This is a separate build and administrator installation, requiring Visual Studio C++ Build Tools and the Windows SDK. Test in a recoverable environment and keep your ordinary Windows password/PIN sign-in available. Account linking needs the **account password**, not a Hello PIN.
+Installation requires administrator approval; **only source builds** need Visual Studio C++ Build Tools and the Windows SDK. Test in a recoverable environment and keep your ordinary Windows password/PIN sign-in available. Account linking needs the **account password**, not a Hello PIN.
 
 **[Read the complete setup, update, and removal guide →](docs/windows-signin.md)**
 
@@ -103,13 +105,19 @@ Existing five-view profiles remain compatible. For circular coverage, re-enroll 
 ```text
 desktop/Viso/         Native C#/WPF application
 backend/viso/        Recognition, enrollment, storage, and worker transports
-signin/              Optional provider, service, shared protocol, and tests
-scripts/             Setup, build, validation, and deployment entry points
+signin/              Optional provider, service, and shared protocol
+installer/           Complete Windows Setup and protected deployment/recovery
+scripts/             Production setup, build, and deployment entry points
 models/manifest.json Pinned model sources and checksums; weights are downloaded
 docs/                User guides, technical references, evidence, and history
 ```
 
-`main` stays production-focused. The [`test` branch](https://github.com/notg0d/viso/tree/test) additionally holds regression suites, fixtures/runners, benchmarks, and the isolated [`experiments/browser/`](https://github.com/notg0d/viso/tree/test/experiments/browser) bench. None is a desktop dependency.
+| Branch | Contents |
+| :--- | :--- |
+| [`main`](https://github.com/notg0d/viso/tree/main) | Production desktop/backend/sign-in/installer sources and shared documentation. Release builds come from clean production commits. |
+| [`test`](https://github.com/notg0d/viso/tree/test) | The same production implementation plus regression suites, fixtures/runners, benchmarks, and the isolated [`experiments/browser/`](https://github.com/notg0d/viso/tree/test/experiments/browser) bench. None is a desktop dependency. |
+
+Promote production commits selectively; do not merge test-only content into `main`. [Branch and release workflow →](docs/development.md#branch-and-release-workflow)
 
 Local environments, enrollment data, model weights, and build/test outputs are ignored by Git. [Repository conventions →](docs/development.md#repository-map)
 

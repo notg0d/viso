@@ -31,6 +31,7 @@ Run commands from the repository root in PowerShell. Python scripts use `.venv\S
 | `test-release.ps1 -Archive PATH [-AllowDirty]` | Validate a ZIP after extraction outside the repository. | Runtime isolation, hashes/exclusions, inference, production client, WPF startup and cleanup; spaces/Unicode paths. Test-only desktop helper stays outside the ZIP. |
 | `test-installer.ps1 [-Payload PATH]` | Validate manifest safety and simulated installer lifecycle; optionally actual bundled service runtime. | Synthetic temporary folders/HKCU sandbox and mocked service operations; never installs real sign-in components. |
 | `test-installer-desktop.ps1 -Bundle PATH` | Validate installed/portable storage selection and explicit desktop data-directory IPC. | Use x64 PowerShell; actual bundled engine, spaces/Unicode path, camera-off startup and synthetic temporary DPAPI save/delete. |
+| `test-installer-launch.ps1 -Compiler PATH` | Exercise the production launcher from actual Inno Setup processes. | Both Inno 7 engine bitnesses, native x64 PowerShell, inherited-module isolation and non-admin rejection; non-elevating/non-installing probes. |
 | `test-app-icon.ps1 -Bundle PATH [-Installer PATH]` | Check all ten Windows logo sizes, native executable/window icons and title-bar branding. | Native x64 Windows PowerShell `-STA`; checks the embedded resources and reproducible icon generation without starting the app controller/camera or installing anything. |
 
 ## Optional privileged deployment
