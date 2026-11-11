@@ -5,6 +5,7 @@ Start with the [development guide](docs/development.md), [architecture](docs/arc
 ## Keep changes focused
 
 - The C#/WPF desktop is the primary app. Keep the historical browser package isolated; do not introduce it as a desktop dependency.
+- Keep production commits separate from test-only changes. Validate on `test` and promote selected production/documentation commits to `main`; never merge test suites, runners/fixtures or the browser bench into `main`. See the [branch and release workflow](docs/development.md#branch-and-release-workflow).
 - Preserve server-owned identity/pose/eye evidence, fresh blink acknowledgment, one-use credentials, cancellation, account binding, and power-generation checks. UI progress is not authentication evidence.
 - Preserve reduced-motion behavior, responsive/minimum layouts, camera/worker cleanup, and current-user data. Do not silently relink accounts or reset profiles.
 - Avoid dependency/model changes without a reason, provenance/license review, and corresponding validation.

@@ -1,15 +1,15 @@
 # Complete Windows installer
 
-[← Documentation](README.md) · [Release ZIP](releases.md) · [Windows sign-in](windows-signin.md) · [Security](security.md)
+[← Documentation](README.md) · [Windows releases](releases.md) · [Windows sign-in](windows-signin.md) · [Security](security.md)
 
-The **0.8.2 source build** adds `Viso-0.8.2-Setup-x64.exe`, an all-in-one, administrator installer. It is separate from the already published **v0.8.1 desktop-only ZIP**, which remains unchanged. Building the installer does not publish it or update an installed machine.
+The [**v0.8.2 experimental pre-release**](https://github.com/notg0d/viso/releases/tag/v0.8.2) provides `Viso-0.8.2-Setup-x64.exe`, an all-in-one, administrator installer. It is separate from the already published **v0.8.1 desktop-only ZIP**, which remains unchanged. Download the executable and its `.sha256`, then [verify the checksum](releases.md#verify-the-download). GitHub publication/building does not update an installed machine.
 
 ## What is included
 
 - Native desktop app, Start-menu shortcut, optional desktop shortcut, and Windows Installed apps uninstall entry. Viso's face-scan logo is embedded in the desktop and Setup executable, with 16-256px Windows icon sizes and a matching high-DPI window/header icon.
 - Private x64 Python interpreter, pinned dependency closure, recognition models, and upstream notices/licenses. Users need no Python, Visual Studio, Inno Setup, .NET SDK, or first-run model download.
 - x64 Credential Provider and automatic LocalSystem `VisoSignIn` service, using the same protected runtime.
-- Documentation, build provenance and a pinned SHA-256 payload manifest; a separate checksum accompanies the Setup executable. Included guide links work locally; references to unshipped development sources point to the build's pinned GitHub commit (publish that source commit before distributing those references).
+- Documentation, build provenance and a pinned SHA-256 payload manifest; a separate checksum accompanies the Setup executable. Included guide links work locally; references to unshipped development sources point to the published build commit `3f35b09`.
 
 Requires **Windows 10/11 x64 and .NET Framework 4.8**. Windows on ARM is unsupported. These experimental builds are unsigned and may trigger SmartScreen. Verify the download before running. The repository does not currently declare a project-wide Viso license; retain all upstream notices when distributing. Inno Setup is a build-only tool; its own license/commercial-use terms apply to the builder.
 
@@ -63,7 +63,9 @@ Output under `desktop/releases/`:
 - `Viso-0.8.2-Setup-x64.exe` — everything in one download.
 - `Viso-0.8.2-Setup-x64.exe.sha256` — installer checksum.
 - `Viso-0.8.2-Setup-x64.exe.json` — provenance/checksums, no private user data.
-- `Viso-0.8.2-installer-payload/` — build/validation staging, not an additional user dependency.
+- `Viso-0.8.2-installer-payload/` — build/validation staging, not an additional user dependency; do not upload it as a release asset.
+
+The published release also includes `Viso-0.8.2-Setup-x64.exe.validation.json`, a pre-publication record of the exact installer checks and their limits. Its publication/installation flags reflect the time of validation. Upload only the executable, `.sha256`, provenance `.json` and validation `.json`; exclude staging and superseded builds. The source tag remains pinned to the clean installer build, not later documentation commits.
 
 On `test`, run `scripts/test-installer.ps1 -Payload PATH` and the x64 `scripts/test-installer-desktop.ps1 -Bundle PATH`, plus existing Python, native, provider/service and deployment suites. The installer regression runner uses synthetic folders, a private temporary HKCU sandbox and mocked service/runtime operations for lifecycle tests; it **does not install or modify the real Windows sign-in provider/service**. Full bundled service-to-Python checks and desktop model readiness use the actual payload without the camera. The desktop check also saves/deletes a synthetic public-portrait DPAPI enrollment in an explicit temporary user-state directory, never in Program Files or a real user's enrollment folder.
 

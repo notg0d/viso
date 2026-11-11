@@ -9,7 +9,7 @@ Start with the desktop. The all-in-one installer includes Windows sign-in; read 
 | Guide | You'll find |
 | :--- | :--- |
 | [Getting started](getting-started.md) | Requirements, setup, two-circle enrollment, unlock simulator, photo lab, and controls. |
-| [Windows releases](releases.md) | Runnable ZIP, checksum verification, requirements, local-state updates, and artifact builds. |
+| [Windows releases](releases.md) | Complete installer versus desktop-only ZIP, checksums, requirements, local-state updates, and artifact builds. |
 | [Complete Windows installer](installer.md) | All-in-one desktop/runtime/models/sign-in Setup.exe, storage, upgrades, removal and recovery. |
 | [Windows sign-in](windows-signin.md) | Account support, administrator installation, explicit linking, upgrades, disable/removal, and diagnostics. |
 | [Troubleshooting](troubleshooting.md) | Camera, models, builds, profiles, blink confirmation, and sign-in failures. |
@@ -40,6 +40,6 @@ Start with the desktop. The all-in-one installer includes Windows sign-in; read 
 
 ## Read the status correctly
 
-The latest recorded snapshot is **2026-11-11**: desktop/complete-installer source **0.8.2**, with the separately authorized **`ac7ce8b` source sign-in update** installed on the development machine. The public [v0.8.1 desktop-only ZIP](releases.md) remains unchanged; the [all-in-one Setup.exe](installer.md) has not been published or deployed. None of these is general authentication certification. Changes are developed/validated on `test`; only production source/documentation is promoted to `main`. Regression sources, runners/fixtures, benchmarks, and the historical browser bench remain **test-only**.
+The latest recorded snapshot is **2026-11-11**: the [v0.8.2 all-in-one Setup.exe](https://github.com/notg0d/viso/releases/tag/v0.8.2) is published as an **experimental pre-release**, built from clean production commit `3f35b09`. The public [v0.8.1 desktop-only ZIP](releases.md) remains unchanged. The separately authorized **`ac7ce8b` source sign-in update** is the last agent-verified development-machine installation; GitHub publication did not install or verify the new Setup on that machine. None of these is general authentication certification. Changes are developed/validated on `test`; only production source/documentation is promoted to `main`. Regression sources, runners/fixtures, benchmarks, and the historical browser bench remain **test-only**.
 
 Automated checks use synthetic state, temporary storage, and public portrait fixtures; they do not prove physical-camera accuracy or replay resistance. Earlier successful local-account unlocks do not validate the current sign-in build. See the [current evidence and remaining gates](testing.md).

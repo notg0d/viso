@@ -10,17 +10,28 @@
 | Desktop runtime | .NET Framework 4.8. Source builds use Windows' installed C# compiler. |
 | Recognition runtime | Included in the release ZIP and complete installer. Source setup needs 64-bit Python 3.11+ with wheels available for [the pinned dependencies](../requirements.txt); development is verified with Python 3.14. |
 | Camera | A Windows-accessible webcam for live enrollment; not required for the photo lab. |
-| First setup | Download/extract the complete release ZIP. Source setup additionally downloads Python packages and approximately 43 MB of model weights. |
+| First setup | Complete installer: administrator approval and sign-in-risk consent. Portable desktop ZIP: extract the entire archive. Source setup additionally downloads Python packages and approximately 43 MB of model weights. |
 
 Running the desktop does not require Node.js, Electron, WebView, a .NET SDK, or administrator privileges. The [complete 0.8.2 Setup.exe](installer.md) additionally includes Windows sign-in and needs administrator approval to install; end users need no Python/compiler setup. Visual Studio C++ tools are needed only when building the sign-in components from source. The published v0.8.1 ZIP remains desktop-only.
 
 ## Download and run
 
-1. Download **`Viso-0.8.1-windows-x64.zip`** and its `.sha256` file from the [0.8.1 release](https://github.com/notg0d/viso/releases/tag/v0.8.1).
-2. [Verify the checksum](releases.md#verify-the-download), then extract the **entire ZIP** to a user-writable folder.
-3. Open **`Viso.exe`** inside the extracted folder. Python, dependencies, model weights, and upstream notices are included. No administrator installation or first-run package/model download occurs.
+### Complete installer (0.8.2)
 
-Keep the companion `runtime/`, `backend/`, `models/`, and `Viso.exe.config` beside the executable. Do not run it from inside the ZIP. This unsigned experimental build may trigger SmartScreen; see [release requirements and limits](releases.md). Launching it does not install Windows sign-in.
+1. Download **`Viso-0.8.2-Setup-x64.exe`** and its `.sha256` file from the [experimental 0.8.2 release](https://github.com/notg0d/viso/releases/tag/v0.8.2).
+2. [Verify the checksum](releases.md#verify-the-download), read the [installer requirements and recovery guide](installer.md), and close Viso in every Windows session.
+3. Run Setup and approve the administrator prompt and experimental-sign-in warning. Open Viso from the Start menu as your ordinary Windows user.
+4. For first-time use, follow enrollment below; enable Windows sign-in only by explicitly linking your account in Settings with its password, not a Hello PIN. Setup never enrolls, collects credentials, links accounts or opens the camera.
+
+Python, dependencies and models are bundled. Installed desktop state uses `%LOCALAPPDATA%\Viso`; portable/source profiles are not migrated automatically. Installer lifecycle and current-build authentication [manual gates remain open](testing.md#082-complete-installer).
+
+### Portable desktop only (0.8.1)
+
+1. Download **`Viso-0.8.1-windows-x64.zip`** and its `.sha256` from the unchanged [0.8.1 release](https://github.com/notg0d/viso/releases/tag/v0.8.1).
+2. Verify the checksum and extract the **entire ZIP** to a user-writable folder.
+3. Open **`Viso.exe`** inside the extracted folder. No administrator installation or first-run package/model download occurs.
+
+Keep the companion `runtime/`, `backend/`, `models/`, and `Viso.exe.config` beside the executable. Do not run it from inside the ZIP. Launching the portable app does not install Windows sign-in. Both distributions are unsigned experimental builds and may trigger SmartScreen; see [release requirements and limits](releases.md).
 
 ## 1. Build and launch from source
 
@@ -101,4 +112,4 @@ Choosing photos replaces the in-memory input set. Inspection does not change sim
 
 - [Troubleshooting](troubleshooting.md) for camera, model, profile, and blink problems.
 - [Security & privacy](security.md) to understand experimental RGB recognition and data storage.
-- [Windows sign-in](windows-signin.md) for the separate installation and explicit account-link workflow. Existing five-view profiles are compatible; re-enroll and **Link / update account** for circular coverage.
+- [Windows sign-in](windows-signin.md) for account support, explicit linking and source installation; [installer guide](installer.md) for complete Setup updates/removal. Existing five-view profiles are compatible; re-enroll and **Link / update account** only when intentionally changing the snapshot for circular coverage.
