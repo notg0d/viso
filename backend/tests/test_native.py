@@ -2,6 +2,7 @@
 
 import base64
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -219,7 +220,11 @@ class NativePipeTests(unittest.TestCase):
             {"id": 3, "command": "analyze", "data": {"image": "data:image/png;base64," + base64.b64encode(cv2.imencode(".png", np.zeros((100, 100, 3), np.uint8))[1]).decode()}},
             {"id": 4, "command": "cancel"},
         ]
-        worker = subprocess.Popen([sys.executable, "-m", "backend.viso.native", "--ephemeral"], cwd=root,
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        (Path(directory.name) / "cv2.py").write_text("raise RuntimeError('Untrusted working directory imported')")
+        environment = dict(os.environ, PYTHONPATH=directory.name, PYTHONHOME=directory.name)
+        worker = subprocess.Popen([sys.executable, "-I", "-B", "-u", str(root / "backend" / "run_native.py"), "--ephemeral"], cwd=directory.name, env=environment,
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, encoding="utf-8")
         try:
