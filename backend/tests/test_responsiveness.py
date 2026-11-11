@@ -31,8 +31,12 @@ class ResponsivenessTests(unittest.TestCase):
     def test_native_camera_keeps_raw_frames_and_signin_never_encodes_preview(self):
         camera = Camera(lambda _: None, preview=False)
         image = np.zeros((100, 100, 3), np.uint8)
+        reads = 0
         def read():
-            camera.stopped.set()
+            nonlocal reads
+            reads += 1
+            if reads > 1:
+                camera.stopped.set()
             return True, image
         with patch("backend.viso.native.cv2.VideoCapture") as factory, patch("backend.viso.native.cv2.imencode") as encode:
             factory.return_value.isOpened.return_value = True
@@ -51,8 +55,8 @@ class ResponsivenessTests(unittest.TestCase):
             with self.assertRaises(InputError):
                 decode_image(image)
 
-    def test_relaxed_angles_allow_natural_cross_axis_motion_but_require_a_turn(self):
-        for step, yaw, pitch in (("left", 7, 11), ("right", -7, -11), ("up", 11, -5), ("down", -11, 5)):
+    def test_circle_sectors_allow_small_motion_but_require_the_correct_direction(self):
+        for step, yaw, pitch in (("left", 10, 2), ("right", -10, -2), ("up", 2, -7), ("down", -2, 7), ("up_left", 10, -7), ("down_right", -10, 7)):
             self.assertTrue(pose_matches(step, yaw, pitch, 16))
             self.assertFalse(pose_matches(step, 0, 0, 0))
             self.assertFalse(pose_matches(step, yaw, pitch, 25))

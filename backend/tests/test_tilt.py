@@ -180,13 +180,14 @@ class TiltFlowTests(unittest.TestCase):
 
     def test_enrollment_captures_upward_pose_with_bounded_bias(self):
         enrollment = Enrollment("test", "Name", 100)
-        poses = ((0, -5), (16, -5), (0, -5), (-16, -5), (0, -5), (0, -17), (0, -5), (0, 7))
+        circuit = ((14, -5), (10, -12), (0, -15), (-10, -12), (-14, -5), (-10, 2), (0, 5), (10, 2))
+        poses = ((0, -5),) + circuit + ((0, -5),) + circuit
         for index, (yaw, pitch) in enumerate(poses):
             for offset in (0, .2, .4):
                 frame = observation(yaw=yaw, pitch=pitch)
-                frame.attention = eyes(yaw=yaw, pitch=pitch, left=.39 if index == 5 else .26, right=.40 if index == 5 else .27)
+                frame.attention = eyes(yaw=yaw, pitch=pitch, left=.39 if index == 3 else .26, right=.40 if index == 3 else .27)
                 result = enrollment.observe(frame, 100.1 + index * .6 + offset)
-            if index == 5:
+            if index == 3:
                 self.assertEqual(result["captured"], 4)
                 self.assertEqual(frame.attention.eye_method, "pose-calibrated")
         self.assertEqual(result["state"], "ready")
@@ -212,14 +213,14 @@ class TiltFlowTests(unittest.TestCase):
     def test_enrollment_never_captures_a_wink_or_bilateral_closed_eyes_at_tilt(self):
         for left, right in ((.8, .27), (.26, .8), (.8, .8)):
             enrollment = Enrollment("test", "Name", 100)
-            poses = ((0, -5), (16, -5), (0, -5), (-16, -5), (0, -5))
+            poses = ((0, -5), (14, -5), (10, -12))
             for index, (yaw, pitch) in enumerate(poses):
                 for offset in (0, .2, .4):
                     frame = observation()
                     frame.attention = eyes(yaw=yaw, pitch=pitch)
                     enrollment.observe(frame, 100.1 + index * .6 + offset)
             self.assertEqual(enrollment.public()["captured"], 3)
-            for now in (103.1, 103.3, 103.5):
+            for now in (101.9, 102.1, 102.3):
                 frame = observation()
                 frame.attention = eyes(pitch=-17, left=left, right=right,
                                        left_ear=.1 if left == .8 else .22, right_ear=.1 if right == .8 else .22)

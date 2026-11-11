@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Reflection;
 
 namespace Viso
 {
@@ -70,6 +71,95 @@ namespace Viso
                         }
                     }
                 }
+                setPreview(null); setEnrolling(true);
+                var ring = (EnrollmentRing)window.FindName("FaceRing");
+                bool oldReduced = ring.ReducedMotion;
+                ring.ReducedMotion = true; ring.Active = false;
+                try {
+                    foreach (int captured in new[] { 1, 5, 9, 13, 17 }) {
+                        ring.Set(captured, 0, 0, 0, false); await Layout(window);
+                        var bitmap = Capture(ring, 2); bool sectors = true;
+                        for (int sector = 0; sector < 8; sector++) {
+                            double angle = (270 + sector * 45 - 90) * Math.PI / 180;
+                            double radius = .415 + 5.0 / 340;
+                            var color = Pixel(bitmap, .5 + Math.Cos(angle) * radius, .5 + Math.Sin(angle) * radius);
+                            bool green = color.G > 155 && color.G > color.B + 15;
+                            bool blue = color.B > 180 && color.B > color.G + 50;
+                            sectors &= green == (captured >= 10 + sector);
+                            sectors &= blue == (captured >= 2 + sector && captured < 10 + sector);
+                        }
+                        string label = "circle-progress-" + captured;
+                        Save(bitmap, Path.Combine(output, label + ".png"));
+                        results.Add(Json.Data("case", label, "eight_sectors", sectors));
+                        if (!sectors) failures.Add(label);
+                    }
+                    var bluePens = (Pen[])typeof(EnrollmentRing).GetField("bluePens", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(ring);
+                    ring.Step = "up_left"; ring.Active = true; ring.Set(2, 10, -7, .7, false); await Layout(window);
+                    var reused = typeof(EnrollmentRing).GetField("bluePens", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(ring);
+                    bool cached = ReferenceEquals(bluePens, reused); foreach (var pen in bluePens) cached &= pen.IsFrozen && pen.Brush.IsFrozen;
+                    bool staticMotion = !(bool)typeof(EnrollmentRing).GetField("running", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(ring);
+                    ring.Set(17, 0, 0, 0, true);
+                    bool complete = (double)ring.GetValue(EnrollmentRing.CompleteProperty) == 1;
+                    results.Add(Json.Data("case", "circle-reduced-resources", "cached_frozen_pens", cached, "no_render_listener", staticMotion, "immediate_completion", complete));
+                    if (!cached || !staticMotion || !complete) failures.Add("circle-reduced-resources");
+                    // Identity requires both a frame count and elapsed time.
+                    // Fast valid frames can exceed required=3 before 150 ms;
+                    // their streak/required ratio must never overrun the palette.
+                    ring.Step = "center"; ring.Active = true;
+                    foreach (int streak in new[] { 0, 1, 3, 4, 5, 8, 12 }) {
+                        ring.Set(0, 0, 0, streak / 3.0, false); await Layout(window);
+                        var bitmap = Capture(ring, 2);
+                        string label = "unlock-streak-" + streak;
+                        Save(bitmap, Path.Combine(output, label + ".png"));
+                        bool bounded = (double)ring.GetValue(EnrollmentRing.HoldProperty) >= 0 && (double)ring.GetValue(EnrollmentRing.HoldProperty) <= 1;
+                        bool locked = (double)ring.GetValue(EnrollmentRing.CompleteProperty) == 0;
+                        results.Add(Json.Data("case", label, "bounded_progress", bounded, "no_completion", locked));
+                        if (!bounded || !locked) failures.Add(label);
+                    }
+                    foreach (var property in new[] { EnrollmentRing.HoldProperty, EnrollmentRing.CapturedProperty, EnrollmentRing.CompleteProperty }) {
+                        int index = 0;
+                        foreach (double value in new[] { -1.0, double.NaN, double.PositiveInfinity, double.NegativeInfinity, double.MaxValue }) {
+                            ring.Set(0, 0, 0, 0, false); ring.SetValue(property, value); await Layout(window);
+                            var bitmap = Capture(ring, 2);
+                            double actual = (double)ring.GetValue(property), maximum = property == EnrollmentRing.CapturedProperty ? 17 : 1;
+                            bool bounded = !double.IsNaN(actual) && !double.IsInfinity(actual) && actual >= 0 && actual <= maximum;
+                            string label = "ring-bounds-" + property.Name.ToLowerInvariant() + "-" + index++;
+                            Save(bitmap, Path.Combine(output, label + ".png"));
+                            results.Add(Json.Data("case", label, "finite_bounded_progress", bounded));
+                            if (!bounded) failures.Add(label);
+                        }
+                    }
+                    bool oldMotionReduced = Motion.Reduced;
+                    try {
+                        Motion.Reduced = false; ring.ReducedMotion = false; ring.UpdateMotion();
+                        foreach (int streak in new[] { 3, 4, 8, 12 }) {
+                            ring.Set(0, 0, 0, streak / 3.0, false);
+                            bool bounded = true;
+                            for (int frame = 0; frame < 4; frame++) {
+                                await Task.Delay(40); await Layout(window);
+                                double hold = (double)ring.GetValue(EnrollmentRing.HoldProperty);
+                                bounded &= hold >= 0 && hold <= 1;
+                                var bitmap = Capture(ring, 2);
+                                Save(bitmap, Path.Combine(output, "unlock-animated-" + streak + "-" + frame + ".png"));
+                            }
+                            string label = "unlock-animated-" + streak;
+                            results.Add(Json.Data("case", label, "bounded_progress", bounded, "animation_enabled", Motion.Enabled, "sampled_frames", 4));
+                            if (!bounded) failures.Add(label);
+                        }
+                        bool finiteTargets = true;
+                        foreach (double value in new[] { -1.0, double.NaN, double.PositiveInfinity, double.NegativeInfinity, double.MaxValue }) {
+                            ring.Set(value, value, value, value, false);
+                            await Task.Delay(40); await Layout(window);
+                            Capture(ring, 2);
+                            foreach (var property in new[] { EnrollmentRing.HoldProperty, EnrollmentRing.CapturedProperty, EnrollmentRing.YawProperty, EnrollmentRing.PitchProperty }) {
+                                double actual = (double)ring.GetValue(property);
+                                finiteTargets &= !double.IsNaN(actual) && !double.IsInfinity(actual);
+                            }
+                        }
+                        results.Add(Json.Data("case", "ring-animated-invalid-targets", "finite_targets", finiteTargets, "animation_enabled", Motion.Enabled));
+                        if (!finiteTargets) failures.Add("ring-animated-invalid-targets");
+                    } finally { Motion.Reduced = oldMotionReduced; ring.ReducedMotion = true; ring.UpdateMotion(); }
+                } finally { ring.Reset(); ring.ReducedMotion = oldReduced; ring.UpdateMotion(); }
             }
             finally
             {

@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -164,6 +165,48 @@ class NativeHostTests(unittest.TestCase):
             self.assertAlmostEqual(timestamps[-1] - timestamps[-2], 1 / 30)
             self.assertLess(len(emitted), reads)
             device.release.assert_called_once()
+
+    def test_stop_drops_retained_frames_before_join_and_late_driver_read_cannot_restore_them(self):
+        emitted = []
+        camera = Camera(emitted.append)
+        blocked, release = threading.Event(), threading.Event()
+        image = np.zeros((100, 100, 3), np.uint8)
+        reads = 0
+
+        def read():
+            nonlocal reads
+            reads += 1
+            if reads > 1:
+                blocked.set()
+                if not release.wait(2):
+                    raise RuntimeError("Synthetic driver did not unblock.")
+            return True, image
+
+        with patch("backend.viso.native.cv2.VideoCapture") as factory:
+            device = factory.return_value
+            device.isOpened.return_value = True
+            device.read.side_effect = read
+            try:
+                camera.start(0)
+                self.assertTrue(blocked.wait(1))
+                before = len(emitted)
+                original_join = camera.thread.join
+
+                def join(timeout):
+                    self.assertIsNone(camera.latest)
+                    self.assertFalse(camera.frames)
+                    release.set()
+                    original_join(timeout)
+
+                with patch.object(camera.thread, "join", side_effect=join):
+                    camera.stop()
+                self.assertIsNone(camera.latest)
+                self.assertFalse(camera.frames)
+                self.assertEqual(len(emitted), before)
+                device.release.assert_called_once()
+            finally:
+                release.set()
+                camera.stop()
 
 
 class NativePipeTests(unittest.TestCase):

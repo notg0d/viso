@@ -6,7 +6,7 @@ from unittest.mock import patch
 import numpy as np
 
 from backend.viso.attention import Attention, EyeCalibration, eye_state, head_angles
-from backend.viso.enrollment import Enrollment, pose_matches
+from backend.viso.enrollment import Enrollment, pose_matches, STEPS, TARGETS
 from backend.viso.recognition import Observation
 from backend.viso.service import ApiError, SandboxService
 from backend.viso.sessions import Attempt
@@ -36,6 +36,21 @@ class BlinkTests(unittest.TestCase):
         self.assertEqual(attempt.observe(.8, "open", 100.7)["phase"], "confirm")
         self.assertEqual(attempt.state, "scanning")
         self.assertEqual(attempt.observe(.8, "open", 100.85)["state"], "unlocked")
+
+    def test_fast_frame_streak_can_exceed_required_without_bypassing_time_or_blink(self):
+        attempt = self.make()
+        for offset in (0, .025, .05, .075, .10, .125):
+            result = attempt.observe(.8, "open", 100.1 + offset)
+            self.assertEqual(result["phase"], "identity")
+            self.assertEqual(result["state"], "scanning")
+        self.assertGreater(result["streak"], result["required"])
+        result = attempt.observe(.8, "open", 100.26)
+        self.assertEqual(result["phase"], "blink")
+        self.assertGreater(result["streak"] / result["required"], 1)
+        self.assertEqual(attempt.observe(.8, "open", 100.3)["state"], "scanning")
+        self.assertEqual(attempt.observe(.8, "closed", 100.4)["phase"], "reopen")
+        self.assertEqual(attempt.observe(.8, "open", 100.5)["state"], "scanning")
+        self.assertEqual(attempt.observe(.8, "open", 100.65)["state"], "unlocked")
 
     def test_open_only_closed_only_and_winks_never_unlock(self):
         for eyes in ("open", "closed", "uncertain", "unknown"):
@@ -149,14 +164,17 @@ class GuidedEnrollmentTests(unittest.TestCase):
             result = enrollment.observe(frame, start + offset)
         return result
 
-    def test_five_distinct_stable_angles_complete_enrollment(self):
+    def test_two_circles_with_diagonal_views_complete_enrollment(self):
         enrollment = Enrollment("test", "Name", 100)
-        for index, (yaw, pitch) in enumerate(((0, 5), (18, 5), (-18, 5), (0, -10), (0, 20))):
+        for index, (step, _, _) in enumerate(STEPS):
+            yaw, pitch = TARGETS[step][:2]
             if enrollment.returning:
                 self.hold(enrollment, observation(pitch=5), 100 + index * 2)
-            result = self.hold(enrollment, observation(yaw=yaw, pitch=pitch), 101 + index * 2)
+            result = self.hold(enrollment, observation(yaw=yaw, pitch=pitch + 5), 101 + index * 2)
             self.assertEqual(result["captured"], index + 1)
         self.assertEqual(result["state"], "ready")
+        self.assertEqual(result["total"], 17)
+        self.assertEqual(result["observations"], 51)
         self.assertNotIn("embeddings", result)
 
     def test_same_frontal_photo_does_not_fill_directional_samples(self):
@@ -178,17 +196,17 @@ class GuidedEnrollmentTests(unittest.TestCase):
         self.assertEqual(result["guidance"]["pitch"], 0)
         self.assertEqual(result["guidance"]["target_yaw"], 14)
 
-    def test_each_turn_requires_recentering_and_cannot_skip_to_opposite_side(self):
+    def test_circle_continues_without_recentering_but_cannot_skip_diagonals(self):
         enrollment = Enrollment("test", "Name", 100)
         self.hold(enrollment, observation(), 101)
         self.hold(enrollment, observation(yaw=16), 102)
-        self.assertTrue(enrollment.returning)
+        self.assertFalse(enrollment.returning)
         result = self.hold(enrollment, observation(yaw=-16), 103)
         self.assertEqual(result["captured"], 2)
-        self.assertEqual(result["title"], "Return to the center")
+        self.assertEqual(result["step"], "up_left")
         self.hold(enrollment, observation(), 104)
         self.assertFalse(enrollment.returning)
-        self.assertEqual(self.hold(enrollment, observation(yaw=-16), 105)["captured"], 3)
+        self.assertEqual(self.hold(enrollment, observation(yaw=10, pitch=-7), 105)["captured"], 3)
 
     def test_wrong_pose_closed_eyes_changed_person_and_missing_face_reset_hold(self):
         for frame in (observation(yaw=-18), observation(eyes="closed", yaw=18), observation(other=True, yaw=18), Observation(0, "No face")):
@@ -235,7 +253,8 @@ class GuidedEnrollmentTests(unittest.TestCase):
             with patch("backend.viso.service.monotonic", return_value=100):
                 started = service.dispatch("POST", "/api/enrollments", {"name": "Test"})
             endpoint = f"/api/enrollments/{started['id']}"
-            poses = ((0, 0), (18, 0), (0, 0), (-18, 0), (0, 0), (0, -12), (0, 0), (0, 12))
+            poses = [TARGETS[step[0]][:2] for step in STEPS]
+            poses.insert(9, (0, 0))  # Recenter only between circuits.
             for index, (yaw, pitch) in enumerate(poses):
                 for offset in (0, .2, .5):
                     now = 101 + index + offset
@@ -243,10 +262,10 @@ class GuidedEnrollmentTests(unittest.TestCase):
                         result = service.dispatch("POST", endpoint + "/frame", {"eyes": "closed", "yaw": 90})
             self.assertEqual(result["enrollment"]["state"], "ready")
             self.assertIsNone(service.store.profile)
-            with patch("backend.viso.service.monotonic", return_value=110):
+            with patch("backend.viso.service.monotonic", return_value=120):
                 status = service.dispatch("POST", endpoint + "/finish")
             self.assertTrue(status["profile"]["guided"])
-            self.assertEqual(status["profile"]["samples"], 5)
+            self.assertEqual(status["profile"]["samples"], 17)
             self.assertNotIn("embedding", status["profile"])
 
     def test_service_cannot_accept_client_claimed_eye_state(self):

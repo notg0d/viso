@@ -18,6 +18,15 @@ struct CredentialTestAccess
         credential->acceptedAt = GetTickCount64() - age;
         credential->scanning = false;
     }
+    static HWND Window(Credential* credential) {
+        std::lock_guard<std::mutex> lock(credential->gate);
+        assert(credential->scanWindow && credential->powerNotification && credential->displayNotification);
+        return credential->scanWindow;
+    }
+    static bool Detached(Credential* credential) {
+        std::lock_guard<std::mutex> lock(credential->gate);
+        return !credential->scanWindow && !credential->powerNotification && !credential->displayNotification && credential->updates.empty();
+    }
 };
 
 class User final : public ICredentialProviderUser
@@ -100,6 +109,21 @@ static void WaitForScan(HANDLE handle)
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
     }
     assert(WaitForSingleObject(handle, 0) == WAIT_OBJECT_0);
+}
+static void DispatchPending()
+{
+    MSG message;
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&message);
+}
+static void Display(HWND window, DWORD state)
+{
+    POWERBROADCAST_SETTING setting = {};
+    setting.PowerSetting = GUID_SESSION_DISPLAY_STATUS; setting.DataLength = sizeof(state);
+    // POWERBROADCAST_SETTING's trailing Data[1] is padded to a DWORD in this
+    // stack object; make the payload explicit rather than sending a real wake.
+    static_assert(sizeof(setting) >= offsetof(POWERBROADCAST_SETTING, Data) + sizeof(state));
+    memcpy(setting.Data, &state, sizeof(state));
+    SendMessageW(window, WM_POWERBROADCAST, PBT_POWERSETTINGCHANGE, reinterpret_cast<LPARAM>(&setting));
 }
 template<typename T> static T Function(HMODULE module, const char* name)
 {
@@ -216,6 +240,52 @@ int wmain()
     MSG canceledMessage;
     while (PeekMessageW(&canceledMessage, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&canceledMessage);
     assert(events->starts == 2 && events->submissions == 0 && !automaticTile->HasCredential());
+    // The selected tile survives sleep without a fresh SetSelected from LogonUI.
+    ResetEvent(events->completed); automaticTile->SetSelected(&automatic); WaitForScan(events->completed);
+    assert(events->starts == 3);
+    HWND scanWindow = CredentialTestAccess::Window(automaticTile);
+    CredentialTestAccess::Accept(automaticTile, secret);
+    SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMSUSPEND, 0);
+    assert(!automaticTile->HasCredential());
+    CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE wakeResponse; PWSTR wakeText = nullptr; CREDENTIAL_PROVIDER_STATUS_ICON wakeIcon;
+    automaticTile->GetSerialization(&wakeResponse, &invalid, &wakeText, &wakeIcon);
+    assert(wakeResponse == CPGSR_NO_CREDENTIAL_NOT_FINISHED && !invalid.rgbSerialization); CoTaskMemFree(wakeText);
+    automaticTile->SetSelected(&automatic);
+    SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMRESUMEAUTOMATIC, 0);
+    SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMRESUMEAUTOMATIC, 0);
+    DispatchPending(); assert(events->starts == 3); // Maintenance wake: no camera.
+    ResetEvent(events->completed);
+    SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMRESUMESUSPEND, 0); WaitForScan(events->completed);
+    assert(events->starts == 4);
+    SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMRESUMEAUTOMATIC, 0);
+    SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMRESUMESUSPEND, 0);
+    automaticTile->SetSelected(&automatic); DispatchPending(); assert(events->starts == 4);
+    CredentialTestAccess::Accept(automaticTile, secret);
+    Display(scanWindow, 0); Display(scanWindow, 0); Display(scanWindow, 2);
+    assert(!automaticTile->HasCredential()); DispatchPending(); assert(events->starts == 4);
+    ResetEvent(events->completed); Display(scanWindow, 1); WaitForScan(events->completed);
+    assert(events->starts == 5);
+    Display(scanWindow, 1); DispatchPending(); assert(events->starts == 5);
+    // Display return may arrive before either resume broadcast.
+    Display(scanWindow, 0); SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMSUSPEND, 0);
+    ResetEvent(events->completed); Display(scanWindow, 1); WaitForScan(events->completed);
+    SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMRESUMEAUTOMATIC, 0);
+    SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMRESUMESUSPEND, 0);
+    DispatchPending(); assert(events->starts == 6);
+    SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMSUSPEND, 0); automaticTile->SetDeselected();
+    SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMRESUMEAUTOMATIC, 0);
+    SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMRESUMESUSPEND, 0);
+    DispatchPending(); assert(events->starts == 6);
+    ResetEvent(events->completed); automaticTile->SetSelected(&automatic); WaitForScan(events->completed); assert(events->starts == 7);
+    SendMessageW(scanWindow, WM_POWERBROADCAST, PBT_APMSUSPEND, 0);
+    automaticTile->UnAdvise(); assert(CredentialTestAccess::Detached(automaticTile));
+    ResetEvent(events->completed); automaticTile->Advise(events);
+    Display(CredentialTestAccess::Window(automaticTile), 1); WaitForScan(events->completed);
+    assert(events->starts == 8 && events->submissions == 0);
+    CredentialTestAccess::Accept(automaticTile, secret);
+    automaticTile->UnAdvise(); assert(automaticTile->HasCredential());
+    SendMessageW(CredentialTestAccess::Window(automaticTile), WM_POWERBROADCAST, PBT_APMSUSPEND, 0);
+    assert(!automaticTile->HasCredential());
     automaticTile->Detach(); automaticTile->Release();
     // Drain pending callbacks while the canceled worker releases its reference.
     auto deadline = GetTickCount64() + 5000;
@@ -239,6 +309,19 @@ int wmain()
     ICredentialProviderCredential* actualTile = nullptr; assert(SUCCEEDED(actual->GetCredentialAt(0, &actualTile)));
     actualTile->Advise(actualEvents); actualTile->SetSelected(&automatic); WaitForScan(actualEvents->completed);
     assert(actualEvents->starts == 1 && actualEvents->submissions == 0);
+    // Exercise the compiled DLL's registered message window, not only the
+    // source-included test class. The event sink aborts before service/camera I/O.
+    HWND actualWindow = FindWindowExW(HWND_MESSAGE, nullptr, L"STATIC", nullptr); assert(actualWindow);
+    assert(GetWindowThreadProcessId(actualWindow, nullptr) == GetCurrentThreadId());
+    SendMessageW(actualWindow, WM_POWERBROADCAST, PBT_APMSUSPEND, 0);
+    SendMessageW(actualWindow, WM_POWERBROADCAST, PBT_APMRESUMEAUTOMATIC, 0);
+    DispatchPending(); assert(actualEvents->starts == 1);
+    ResetEvent(actualEvents->completed);
+    SendMessageW(actualWindow, WM_POWERBROADCAST, PBT_APMRESUMESUSPEND, 0); WaitForScan(actualEvents->completed);
+    assert(actualEvents->starts == 2 && actualEvents->submissions == 0);
+    Display(actualWindow, 0); ResetEvent(actualEvents->completed); Display(actualWindow, 1); WaitForScan(actualEvents->completed);
+    SendMessageW(actualWindow, WM_POWERBROADCAST, PBT_APMRESUMEAUTOMATIC, 0);
+    DispatchPending(); assert(actualEvents->starts == 3);
     actualTile->SetDeselected(); actualTile->UnAdvise(); actualTile->Release();
     actual->UnAdvise(); actual->Release(); factory->Release();
     auto canUnload = Function<decltype(&DllCanUnloadNow)>(module, "DllCanUnloadNow");
@@ -250,5 +333,5 @@ int wmain()
     }
     assert(canUnload() == S_OK); actualEvents->Release();
     FreeLibrary(module); FreeLibrary(sspi);
-    CoUninitialize(); std::cout << "Provider checks passed: DLL activation, protected local/MSA packing, account filtering, automatic scanning with UI-thread callbacks, automatic-submit refresh, one-use expiry, bounded retry, cancellation, unload, and no credentials before verification.\n";
+    CoUninitialize(); std::cout << "Provider checks passed: DLL activation, protected local/MSA packing, account filtering, UI-thread callbacks, automatic-submit refresh, one-use expiry, sleep/display rearming, maintenance/duplicate wake suppression, stale credential revocation, bounded retry, cancellation and unload.\n";
 }
