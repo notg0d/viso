@@ -7,14 +7,22 @@
 | Component | Requirement |
 | :--- | :--- |
 | Windows | 64-bit Windows 10 or 11. |
-| Desktop runtime | .NET Framework 4.8; the build uses Windows' installed C# compiler. |
-| Recognition runtime | 64-bit Python 3.11+ with wheels available for [the pinned dependencies](../requirements.txt). Development is verified with Python 3.14. |
+| Desktop runtime | .NET Framework 4.8. Source builds use Windows' installed C# compiler. |
+| Recognition runtime | Included in the release ZIP. Source setup needs 64-bit Python 3.11+ with wheels available for [the pinned dependencies](../requirements.txt); development is verified with Python 3.14. |
 | Camera | A Windows-accessible webcam for live enrollment; not required for the photo lab. |
-| First setup | Internet access for Python packages and approximately 43 MB of model weights. |
+| First setup | Download/extract the complete release ZIP. Source setup additionally downloads Python packages and approximately 43 MB of model weights. |
 
 The desktop does not require Node.js, Electron, WebView, a .NET SDK, or administrator privileges. Visual Studio C++ tools and administrator installation are needed only for the [optional sign-in components](windows-signin.md).
 
-## 1. Build and launch
+## Download and run
+
+1. Download **`Viso-0.8.1-windows-x64.zip`** and its `.sha256` file from the [0.8.1 release](https://github.com/notg0d/viso/releases/tag/v0.8.1).
+2. [Verify the checksum](releases.md#verify-the-download), then extract the **entire ZIP** to a user-writable folder.
+3. Open **`Viso.exe`** inside the extracted folder. Python, dependencies, model weights, and upstream notices are included. No administrator installation or first-run package/model download occurs.
+
+Keep the companion `runtime/`, `backend/`, `models/`, and `Viso.exe.config` beside the executable. Do not run it from inside the ZIP. This unsigned experimental build may trigger SmartScreen; see [release requirements and limits](releases.md). Launching it does not install Windows sign-in.
+
+## 1. Build and launch from source
 
 Open PowerShell in the repository root:
 
@@ -31,10 +39,12 @@ Keep the executable within the project directory so it can locate `.venv/`, `bac
 
 | Launch | Enrollment |
 | :--- | :--- |
+| `.\Viso.exe --ephemeral` (release ZIP) | Memory-only enrollment; lost when the app closes. Cannot enable Windows sign-in. |
+| Open `Viso.exe` (release ZIP) | Encrypted profile in `.viso/profile.dpapi` beside the app, for the same Windows user/machine. |
 | `.\scripts\start.ps1 -Ephemeral` | Memory-only for this worker process; lost when the app closes. Cannot enable Windows sign-in. |
 | `.\scripts\start.ps1` | One encrypted profile in `.viso/profile.dpapi`, restored by the same Windows user/machine. |
 
-An ephemeral profile is not converted into a persistent one. Close the app, launch normally, and enroll again if you want to save it. Desktop preferences are separate in `.viso/desktop.json`. Closing Viso releases the camera and shuts down its worker.
+An ephemeral profile is not converted into a persistent one. Close the app, launch normally, and enroll again if you want to save it. Desktop preferences are separate in `.viso/desktop.json`. Closing Viso releases the camera and shuts down its worker. For ZIP updates, [retain your own local state explicitly](releases.md#update-or-remove).
 
 ## 2. Enroll with a webcam
 

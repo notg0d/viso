@@ -7,7 +7,8 @@
 | Problem | What to try |
 | :--- | :--- |
 | **Camera unavailable or busy** | Allow Windows desktop-app camera access, close other camera apps, then choose/refresh the device in Settings. Use Image lab to test the engine without a webcam. |
-| **Models or engine unavailable** | Close Viso, run `.\scripts\setup.ps1` from the root, then reopen. Setup verifies model checksums before use. Errors appear in the native window. |
+| **Models or engine unavailable** | ZIP: close Viso, verify the download, and extract the entire archive again without mixing runtime/model versions. Source: run `.\scripts\setup.ps1` from the root, then reopen. Model checksums are checked before use. Errors appear in the native window. |
+| **ZIP executable won't start / runtime missing** | Extract all files; do not run inside the ZIP or copy only `Viso.exe`. Check Windows x64 and .NET Framework 4.8. The unsigned executable may trigger SmartScreen; [verify the download](releases.md#verify-the-download). |
 | **Python package install fails** | Check that the selected Python is 64-bit and has wheels for the pinned packages. Python 3.14 is the verified development version; see [requirements](getting-started.md#requirements). Do not install multiple OpenCV wheels into the same environment. |
 | **Cannot replace `Viso.exe` during build** | Close the running app before `.\scripts\build-native.ps1`. Do not delete your enrollment to fix an executable lock. |
 | **Camera stops after changing pages, minimizing, locking, or sleep** | This is deliberate cancellation. Restart the camera/test; old frames and challenge evidence must not resume. |

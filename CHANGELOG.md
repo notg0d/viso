@@ -2,7 +2,7 @@
 
 [Project overview](README.md) · [Validation evidence](docs/testing.md) · [Measurements](docs/performance.md)
 
-Versions below describe development builds, not tagged product releases. Work is validated on `test`, then production source/documentation is synchronized to `main` without test sources, runners/fixtures, benchmarks, or the historical browser bench. Desktop and separately installed sign-in components can have different versions.
+The 0.8.1 desktop has an experimental Windows ZIP release; earlier entries describe development builds. Work is validated on `test`, then production source/documentation is synchronized to `main` without test sources, runners/fixtures, benchmarks, or the historical browser bench. Desktop and separately installed sign-in components can have different versions.
 
 ## Unreleased — documentation and repository organization
 
@@ -14,6 +14,15 @@ Versions below describe development builds, not tagged product releases. Work is
 - Validation passed 113 Python tests, four browser sampler tests, and the browser TypeScript/production build; local documentation links/assets were checked. Test/tool/browser files remain on `test` only; shared guides and validation records are included on `main`.
 
 ## Desktop 0.8.1 — 2026-11-11
+
+### Runnable Windows package
+
+- Extract-and-run Windows x64 ZIP with `Viso.exe`, private CPython, the pinned recognition dependency closure, verified models, redistribution notices, source/version metadata, and SHA-256 manifests.
+- Isolated desktop worker startup selects the bundled runtime or the source checkout's `.venv`; ignores Python environment/path injection and creates no bytecode caches.
+- Unicode-safe in-memory model loading, after extraction testing reproduced OpenCV's non-ASCII Windows path failure.
+- Package excludes user enrollment/account credentials, tests/fixtures, browser assets, pip, unrelated installed packages, and development leftovers. Existing local data and installed Windows sign-in are not modified.
+- Separate Windows sign-in installation is not included. Requires Windows 10/11 x64 and .NET Framework 4.8; the executable is unsigned. [Download and run](docs/releases.md).
+- Release gate validates the extracted production executable/runtime outside the repository, including Unicode paths, isolated imports, inference, private IPC, both storage-mode startups, and worker cleanup. Regression coverage and release validation helpers remain on `test` only.
 
 ### Fixed
 

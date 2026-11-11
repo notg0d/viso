@@ -11,6 +11,8 @@ Run commands from the repository root in PowerShell. Python scripts use `.venv\S
 | `setup.ps1 [-SkipBuild]` | Create environment, install pinned packages, verify/download models, build desktop. | Needs Python and internet; no administrator installation. |
 | `start.ps1 [-Ephemeral]` | Rebuild stale/missing native executable and launch. | Memory-only enrollment with `-Ephemeral`; normal launch uses current-user DPAPI. |
 | `build-native.ps1 [-SmokeTest] [-OutputDirectory PATH]` | Build x64 C#/WPF executable. | .NET Framework 4.8; close running app first. Smoke uses synthetic/temp state, not a physical camera. |
+| `build-release.ps1 [-OutputDirectory PATH] [-AllowDirty]` | Build runnable Windows ZIP and SHA-256 file. | Private Python/dependencies/models; no sign-in installer. Clean sources required unless explicitly building a local draft. [Release guide](../docs/releases.md). |
+| `package-runtime.py ROOT DESTINATION` | Copy the installed dependency closure into a private runtime. | Called by packaging helpers with the project's `.venv` Python; keeps notices, excludes caches/test folders/pip/unrelated packages. |
 | `download_models.py` | Download pinned models and upstream notices; verify SHA-256. | Writes ignored weights/licenses under `models/`. |
 
 ## Validation and evidence
@@ -23,6 +25,7 @@ Run commands from the repository root in PowerShell. Python scripts use `.venv\S
 | `check-docs.py` | Validate local Markdown links, anchors, and image paths. | Standard-library only; excludes ignored/generated trees; does not fetch external links. |
 | `test-signin-deployment.ps1` | Check ownership/ACL/reparse-point deployment rules. | Temporary synthetic paths; does not install/register components. |
 | `test-signin-runtime.ps1` | Package private runtime and exercise service/worker checks. | Run `build-signin.ps1 -Test` first; temporary payload, no passwords/camera/registration. |
+| `test-release.ps1 -Archive PATH [-AllowDirty]` | Validate a ZIP after extraction outside the repository. | Runtime isolation, hashes/exclusions, inference, production client, WPF startup and cleanup; spaces/Unicode paths. Test-only desktop helper stays outside the ZIP. |
 
 ## Optional privileged deployment
 

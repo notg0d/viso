@@ -23,6 +23,8 @@ Python native worker (backend/viso/native.py)
 
 The native worker emits `ready` when its command transport/profile store is available, then initializes models on a background thread and emits `engine_ready` (including on initialization failure). Status exposes separate `loading` and `ready` engine flags; inference actions remain gated until models load successfully. WPF device enumeration runs off the UI thread and overlaps worker startup. Shutdown waits for initialization before closing the engine.
 
+[Release ZIPs](releases.md) include a private `runtime/python.exe`; source checkouts use `.venv/Scripts/python.exe` as the fallback. Both launch `backend/run_native.py` with `-I -B -u`: only the payload root is explicitly added to Python's import path, environment/user-site overrides are ignored, and bytecode caches are disabled. Python reads verified model bytes before passing them to OpenCV/MediaPipe, avoiding narrow Windows filename APIs for Unicode paths.
+
 UI preferences are separate from face data, in `.viso/desktop.json`. Session exports contain messages and times only. Face profiles retain the existing compatible `.viso/profile.dpapi` format. The private pipes are a desktop transport, not a privileged pre-login authentication boundary.
 
 ### Optional native Windows sign-in

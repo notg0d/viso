@@ -21,4 +21,5 @@ playwright-report/
 .env
 # Native binaries
 desktop/bin/
+desktop/releases/
 signin/bin/

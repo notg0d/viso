@@ -84,9 +84,10 @@ function Set-VisoPayloadOwner([string]$path) {
     }
 }
 
-function Copy-VisoTree([string]$from, [string]$to, [string[]]$exclude = @()) {
+function Copy-VisoTree([string]$from, [string]$to, [string[]]$exclude = @(), [string[]]$excludeFiles = @()) {
     $arguments = @($from,$to,'/E','/COPY:DAT','/DCOPY:DAT','/R:1','/W:1','/NFL','/NDL','/NJH','/NJS','/NP','/XJ')
     if ($exclude.Count) { $arguments += '/XD'; $arguments += $exclude }
+    if ($excludeFiles.Count) { $arguments += '/XF'; $arguments += $excludeFiles }
     & robocopy @arguments | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "Could not copy $from." }
 }
@@ -97,12 +98,21 @@ function Copy-VisoRuntime([string]$root, [string]$destination, [switch]$Protecte
     $runtime = Join-Path $destination 'runtime'
     New-Item $runtime -ItemType Directory | Out-Null
     Get-ChildItem $base -File | Where-Object { $_.Name -match '^python.*\.(exe|dll)$|^vcruntime.*\.dll$|^LICENSE' } | Copy-Item -Destination $runtime
-    Copy-VisoTree "$base\DLLs" "$runtime\DLLs"
+    Copy-VisoTree "$base\DLLs" "$runtime\DLLs" @() @('_test*.pyd', '_ctypes_test.pyd', 'xx*.pyd')
     Copy-VisoTree "$base\Lib" "$runtime\Lib" @('site-packages','__pycache__','test','tests','idlelib','ensurepip')
-    Copy-VisoTree "$root\.venv\Lib\site-packages" "$runtime\Lib\site-packages" @('__pycache__','pip','tests')
+    & "$root\.venv\Scripts\python.exe" -I -B "$root\scripts\package-runtime.py" $root $runtime
+    if ($LASTEXITCODE -ne 0) { throw 'Could not package the pinned Python dependencies.' }
     Copy-VisoTree "$root\backend\viso" "$destination\backend\viso" @('__pycache__')
     if (Test-Path "$root\backend\__init__.py") { Copy-Item "$root\backend\__init__.py" "$destination\backend\__init__.py" }
-    Copy-VisoTree "$root\models" "$destination\models"
+    Copy-Item "$root\backend\run_native.py" "$destination\backend\run_native.py"
+    # Copy only pinned models/notices, never local downloads or partial files.
+    New-Item "$destination\models\licenses" -ItemType Directory -Force | Out-Null
+    Copy-Item "$root\models\manifest.json" "$destination\models\manifest.json"
+    $manifest = Get-Content -LiteralPath "$root\models\manifest.json" -Raw | ConvertFrom-Json
+    foreach ($model in $manifest.models) {
+        Copy-Item (Join-Path "$root\models" $model.file) "$destination\models"
+        Copy-Item (Join-Path "$root\models\licenses" ($model.directory + '.txt')) "$destination\models\licenses"
+    }
     Copy-Item "$root\THIRD_PARTY_NOTICES.md" $destination
     if ($ProtectedPayload) {
         Set-VisoPayloadOwner $destination
