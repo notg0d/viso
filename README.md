@@ -94,7 +94,7 @@ Existing five-view profiles remain compatible. For circular coverage, re-enroll 
 | Understand recognition and data boundaries | [Architecture](docs/architecture.md) · [Security & privacy](docs/security.md) |
 | Build, test, or contribute | [Development](docs/development.md) · [Contributing](CONTRIBUTING.md) · [Script index](scripts/README.md) |
 | Check evidence, not marketing claims | [Validation](docs/testing.md) · [Measured performance](docs/performance.md) |
-| Explore decisions and earlier releases | [Research](docs/enrollment-resume-research.md) · [Changelog](CHANGELOG.md) · [Documentation index](docs/README.md) |
+| Explore decisions and earlier releases | [Research](docs/enrollment-resume-research.md) · [Project comparison](docs/windows-face-unlock-review.md) · [Changelog](CHANGELOG.md) |
 
 ## Repository at a glance
 

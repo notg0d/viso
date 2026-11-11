@@ -31,6 +31,7 @@ Start with the desktop. Install Windows sign-in only after reading its separate 
 | [Testing & validation](testing.md) | Current automated coverage, reproduction commands, manual scenarios, and open release gates. |
 | [Measured performance](performance.md) | Component benchmarks, camera-start measurements, memory residency, and measurement limits. |
 | [Enrollment, resources & wake research](enrollment-resume-research.md) | Primary sources, pre-implementation decisions, deployment checks, and the desktop hotfix. |
+| [Windows Face Unlock review](windows-face-unlock-review.md) | Pinned source comparison, security/lifecycle findings, and unreleased camera/diagnostic improvements. |
 | [Changelog](../CHANGELOG.md) | Concise version history; desktop and sign-in versions kept separate. |
 | [Earlier native validation](history/native-validation.md) | The 0.7.1 physical-camera and automatic-submit results. |
 | [Earlier browser validation](history/browser-validation.md) | Historical 0.3–0.5 browser experiments and their limitations. |

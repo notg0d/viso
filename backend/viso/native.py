@@ -7,15 +7,18 @@ Camera capture has its own clock/thread so inference cannot swallow a short blin
 import argparse
 import base64
 from collections import deque
+from importlib.metadata import PackageNotFoundError, version
 import json
 from pathlib import Path
+import struct
 import sys
 import threading
 from time import monotonic
 
 import cv2
+import numpy as np
 
-from .recognition import FaceEngine
+from .recognition import FaceEngine, MODEL_ID
 from .service import ApiError, SandboxService
 from .storage import ProfileStore
 
@@ -23,6 +26,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class Camera:
+    START_TIMEOUT = 12
+    STOP_TIMEOUT = 3
+    FIRST_FRAME_READS = 3
+
     def __init__(self, emit, preview=True):
         self.emit = emit
         self.preview = preview
@@ -33,6 +40,32 @@ class Camera:
         self.stopped = threading.Event()
         self.thread = None
         self.generation = 0
+        self.details = {}
+        self.sample_times = deque(maxlen=40)
+        self.unreleased_device = None
+
+    @staticmethod
+    def valid_frame(image):
+        return (isinstance(image, np.ndarray) and image.dtype == np.uint8
+                and image.ndim == 3 and image.shape[2] == 3 and image.size > 0)
+
+    def diagnostics(self):
+        # An allowlisted snapshot only: never images, device names/paths, raw
+        # driver exceptions, profile metadata, identity/eye scores or credentials.
+        now = monotonic()
+        with self.lock:
+            result = dict(self.details)
+            result["attempts"] = [dict(attempt) for attempt in self.details.get("attempts", [])]
+            latest = self.latest
+            times = list(self.sample_times)
+            result["buffered_frames"] = len(self.frames)
+        active = self.thread is not None and self.thread.is_alive()
+        result.update(running=active and latest is not None and not self.stopped.is_set() and not self.error,
+                      driver_active=active, stop_requested=self.stopped.is_set(),
+                      frame_age_ms=round(max(0, now - latest[0]) * 1000, 1) if latest else None,
+                      capture_hz=round((len(times) - 1) / (times[-1] - times[0]), 1)
+                      if len(times) > 1 and times[-1] > times[0] else None)
+        return result
 
     def start(self, index):
         if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index <= 32:
@@ -40,34 +73,107 @@ class Camera:
         self.stop()
         self.error = None
         self.stopped.clear()
+        started = monotonic()
+        deadline = started + self.START_TIMEOUT
+        with self.lock:
+            self.sample_times.clear()
+            self.details = {"index": index, "backend": None, "width": None, "height": None,
+                            "startup_ms": None, "failure": None, "attempts": []}
         opened = threading.Event()
+        startup_complete = False
         self.generation += 1
         generation = self.generation
 
         def capture():
+            nonlocal startup_complete
             device = None
+
+            def interrupted():
+                if self.stopped.is_set():
+                    raise ApiError("Camera startup canceled.")
+                if monotonic() >= deadline:
+                    raise ApiError("The camera took too long to open. Check Windows camera permissions.")
+
+            def release_device():
+                nonlocal device
+                if device is not None:
+                    # A failed/blocked release must not lead to a second owner.
+                    current = device
+                    device = None
+                    try:
+                        current.release()
+                    except Exception:
+                        self.unreleased_device = current
+                        with self.lock:
+                            self.details["failure"] = "release_failed"
+                        raise ApiError("Camera driver did not release the device. Close Viso and restart the camera.")
+
             try:
                 # OpenCV 4.13's DirectShow constructor negotiates size before
                 # starting the graph. Setting size/FPS after open restarts the
                 # driver twice; use its negotiated cadence and timestamp every
                 # frame instead of forcing a nominal 30 fps.
-                device = cv2.VideoCapture(index, cv2.CAP_DSHOW, [
-                    cv2.CAP_PROP_FRAME_WIDTH, 960,
-                    cv2.CAP_PROP_FRAME_HEIGHT, 720,
-                ])
-                if not device.isOpened():
-                    raise RuntimeError("Camera unavailable. Close other camera apps and check Windows camera permissions.")
+                # Some drivers reject open-time parameters or open a handle but
+                # never supply frames. Try defaults, then Media Foundation, once
+                # each and serially, within the SAME startup deadline. CAP_ANY
+                # would repeat an unspecified backend and is deliberately absent.
+                candidates = [("DirectShow", cv2.CAP_DSHOW, "negotiated", [
+                    cv2.CAP_PROP_FRAME_WIDTH, 960, cv2.CAP_PROP_FRAME_HEIGHT, 720]),
+                    ("DirectShow", cv2.CAP_DSHOW, "default", None),
+                    ("Media Foundation", cv2.CAP_MSMF, "default", None)]
+                image = None
+                for backend, api, configuration, parameters in candidates:
+                    interrupted()
+                    attempt_started = monotonic()
+                    attempt = {"backend": backend, "configuration": configuration, "outcome": "opening"}
+                    with self.lock:
+                        self.details["attempts"].append(attempt)
+                    outcome = "driver_error"
+                    try:
+                        device = cv2.VideoCapture(index, api, parameters) if parameters else cv2.VideoCapture(index, api)
+                        interrupted()
+                        outcome = "not_opened"
+                        if device.isOpened():
+                            outcome = "no_frame"
+                            for _ in range(self.FIRST_FRAME_READS):
+                                interrupted()
+                                ok, candidate = device.read()
+                                interrupted()
+                                if ok and self.valid_frame(candidate):
+                                    image = candidate
+                                    outcome = "opened"
+                                    break
+                    except ApiError:
+                        outcome = "stopped" if self.stopped.is_set() else "timeout"
+                        raise
+                    except Exception:
+                        outcome = "driver_error"
+                    finally:
+                        with self.lock:
+                            attempt.update(outcome=outcome, elapsed_ms=round((monotonic() - attempt_started) * 1000, 1))
+                        if outcome != "opened":
+                            release_device()
+                    if image is not None:
+                        with self.lock:
+                            self.details["backend"] = backend
+                        break
+                if image is None:
+                    raise ApiError("Camera unavailable. Close other camera apps, check Windows desktop-app camera permissions, and choose the device in Settings.")
                 last_preview = last_sample = 0
                 while not self.stopped.is_set():
-                    ok, image = device.read()
+                    if image is None:
+                        ok, image = device.read()
+                        if not ok or not self.valid_frame(image):
+                            raise ApiError("The camera disconnected or stopped providing frames. Reconnect it and start a new test.")
                     if self.stopped.is_set():
                         break
                     now = monotonic()
-                    if not ok or image is None:
-                        raise RuntimeError("The camera disconnected. Reconnect it and try again.")
+                    if not startup_complete:
+                        interrupted()
                     # Keep each 30 fps frame: a 35 ms gate would halve a webcam's
                     # evidence rate to 15 fps and could miss brief blinks.
                     if now - last_sample < .025:
+                        image = None
                         continue
                     last_sample = now
                     height, width = image.shape[:2]
@@ -81,6 +187,11 @@ class Camera:
                             break
                         self.latest = (now, image)
                         self.frames.append(self.latest)
+                        self.sample_times.append(now)
+                        self.details.update(width=width, height=height)
+                        if not startup_complete:
+                            self.details["startup_ms"] = round((now - started) * 1000, 1)
+                    startup_complete = True
                     opened.set()
                     if self.preview and now - last_preview >= 1 / 15:
                         last_preview = now
@@ -91,22 +202,43 @@ class Camera:
                         ok, jpeg = cv2.imencode(".jpg", view, [cv2.IMWRITE_JPEG_QUALITY, 80])
                         if ok and not self.stopped.is_set():
                             self.emit({"event": "preview", "image": base64.b64encode(jpeg).decode("ascii"), "generation": generation})
+                    image = None
             except Exception as error:
-                self.error = str(error)
-                self.emit({"event": "camera_error", "message": self.error, "generation": generation})
+                if not self.stopped.is_set():
+                    self.error = error.message if isinstance(error, ApiError) else "Camera driver failed. Close Viso and restart the camera."
+                    with self.lock:
+                        if self.details["failure"] != "release_failed":
+                            self.details["failure"] = "capture_failed" if startup_complete else "startup_failed"
+                        self.latest = None
+                        self.frames.clear()
+                    self.emit({"event": "camera_error", "message": self.error, "generation": generation})
             finally:
-                if device is not None:
-                    device.release()
-                opened.set()
+                try:
+                    release_device()
+                except Exception:
+                    # Retire this Camera, even if a failed release killed its
+                    # thread. Reusing it cannot safely establish sole ownership.
+                    self.error = "Camera driver did not release the device. Close Viso and restart the camera."
+                    with self.lock:
+                        self.details["failure"] = "release_failed"
+                        self.latest = None
+                        self.frames.clear()
+                finally:
+                    opened.set()
 
         self.thread = threading.Thread(target=capture, name="viso-camera", daemon=True)
         self.thread.start()
-        if not opened.wait(12):
+        if not opened.wait(max(0, deadline - monotonic())):
+            with self.lock:
+                self.details["failure"] = "startup_timeout"
             self.stop()
             raise ApiError("The camera took too long to open. Check Windows camera permissions.")
         if self.error:
             raise ApiError(self.error)
-        return {"running": True, "generation": generation}
+        if self.stopped.is_set() or not startup_complete:
+            raise ApiError("Camera startup canceled.")
+        return {"running": True, "generation": generation, "backend": self.details["backend"],
+                "startup_ms": self.details["startup_ms"]}
 
     def stop(self):
         self.stopped.set()
@@ -115,7 +247,7 @@ class Camera:
             self.latest = None
             self.frames.clear()
         if self.thread is not None:
-            self.thread.join(timeout=3)
+            self.thread.join(timeout=self.STOP_TIMEOUT)
             if self.thread.is_alive():
                 # Never reopen another device while a stuck driver still owns it.
                 raise ApiError("Camera driver did not stop. Close Viso and restart the camera.")
@@ -123,6 +255,9 @@ class Camera:
         with self.lock:
             self.latest = None
             self.frames.clear()
+            release_failed = self.details.get("failure") == "release_failed"
+        if release_failed:
+            raise ApiError("Camera driver did not release the device. Close Viso and restart the camera.")
 
     def discard(self):
         with self.lock:
@@ -170,6 +305,17 @@ class NativeHost:
 
     def handle(self, command, data):
         dispatch = self.service.dispatch
+        if command == "diagnostics":
+            try:
+                mediapipe_version = version("mediapipe")
+            except PackageNotFoundError:
+                mediapipe_version = None
+            return {"schema": 1, "runtime": {"python": ".".join(map(str, sys.version_info[:3])),
+                    "bits": struct.calcsize("P") * 8, "isolated": bool(sys.flags.isolated),
+                    "numpy": np.__version__, "opencv": cv2.__version__, "mediapipe": mediapipe_version},
+                    "engine": {"ready": self.service.engine is not None, "loading": self.service.engine_loading,
+                               "model": MODEL_ID}, "storage": self.service.store.label,
+                    "storage_error": bool(self.service.store.error), "camera": self.camera.diagnostics()}
         if command == "status":
             result = dispatch("GET", "/api/status")
             result.pop("token", None)
