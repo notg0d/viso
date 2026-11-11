@@ -4,7 +4,15 @@
 
 The 0.8.1 desktop has an experimental Windows ZIP release; earlier entries describe development builds. Work is validated on `test`, then production source/documentation is synchronized to `main` without test sources, runners/fixtures, benchmarks, or the historical browser bench. Desktop and separately installed sign-in components can have different versions.
 
-## Unreleased — documentation and repository organization
+## Unreleased — camera compatibility and diagnostics
+
+- [Pinned source review of Windows Face Unlock](docs/windows-face-unlock-review.md), including its enrollment/ArcFace/MiniFASNet flow, scheduled-task lifecycle, pipe trust boundary and updater limitations.
+- Serial startup fallback: negotiated DirectShow → default DirectShow → default Media Foundation, with actual-frame validation, release-before-reopen and one shared deadline. No streaming reconnect, parallel owners or blink-rule change.
+- Backend/first-frame timing in Activity; explicit JSON export adds allowlisted runtime/camera metadata, without images/vectors, credentials, identifiers or raw diagnostic exceptions. Old-generation camera errors cannot cancel a newer session.
+- No new dependencies, automatic locking, upstream code copying, installation, enrollment/account-link changes or release replacement. Published v0.8.1 and installed sign-in 0.8.0 remain unchanged; these additions are source-only.
+- Validation: 135 Python tests, native smoke with 63 raster/resource cases and diagnostic/stale-event assertions, provider lifecycle tests, 59 service/protocol checks, 11 deployment checks and 25 packaged shared-runtime checks. Physical fallback/multi-camera mapping remain unverified. [Evidence](docs/testing.md#unreleased-camera-compatibility-and-diagnostics).
+
+## Documentation and repository organization — 2026-11-11
 
 - Screenshot-led README with a short native quick start and clearer simulator/sign-in distinction.
 - Documentation index, onboarding, troubleshooting, security/privacy, development, script, and contribution guides.

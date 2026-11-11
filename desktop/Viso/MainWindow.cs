@@ -128,10 +128,13 @@ namespace Viso
                 Text("LabResult", "Simulator locked. " + result.Child("attempt").Text("message") + "\n" + ObservationSummary(result.Child("observation")));
                 Log("Photo rejection test: simulator remains locked.");
             });
-            Click("ExportActivity", delegate {
+            Click("ExportActivity", async delegate {
                 var dialog = new SaveFileDialog { Filter = "JSON session|*.json", FileName = "viso-session-" + DateTime.Now.ToString("yyyy-MM-dd") + ".json" };
-                if (dialog.ShowDialog(window) == true) File.WriteAllText(dialog.FileName, Json.Encode(Json.Data("app", "Viso", "mode", "sandbox", "exported_at", DateTime.UtcNow.ToString("o"), "events", events)));
-                return Task.FromResult(0);
+                if (dialog.ShowDialog(window) != true) return;
+                var diagnostics = Json.Data("available", false);
+                try { if (engine != null) diagnostics = await engine.Send("diagnostics"); }
+                catch { /* A disconnected worker must not prevent exporting the session. */ }
+                if (!closed) File.WriteAllText(dialog.FileName, Json.Encode(ActivityExport(diagnostics)));
             });
             Click("ClearActivity", delegate { events.Clear(); RenderEvents(); return Task.FromResult(0); });
             Click("RefreshCameras", RefreshCameras);
@@ -234,7 +237,7 @@ namespace Viso
             {
                 window.Dispatcher.BeginInvoke(new Action(async delegate {
                     if (closed) return;
-                    if (message.Text("event") == "camera_error" && !cameraOn) return;
+                    if (message.Text("event") == "camera_error" && (!cameraOn || (int)message.Number("generation") != cameraGeneration)) return;
                     await Suspend();
                     if (message.Text("event") == "engine_error") { status = Json.Data(); Text("EngineStatus", "Engine disconnected"); UpdateControls(); }
                     Fail(new IOException(message.Text("message")));
@@ -262,7 +265,8 @@ namespace Viso
             cameraOn = true; cameraGeneration = (int)result.Number("generation");
             timer.Start();
             Text("CameraStatus", "Live · on this PC"); Find<System.Windows.Shapes.Ellipse>("CameraDot").Fill = Brush("#65C7A0");
-            Text("CaptureFeedback", "Center your face in the ring. The preview is mirrored."); Log("Camera started.");
+            Text("CaptureFeedback", "Center your face in the ring. The preview is mirrored.");
+            Log("Camera started · " + result.Text("backend", "camera") + " · " + result.Number("startup_ms").ToString("F0", CultureInfo.InvariantCulture) + " ms to first frame.");
         }
         private async Task StopCamera()
         {
@@ -529,6 +533,12 @@ namespace Viso
             events.Insert(0, Json.Data("time", DateTime.UtcNow.ToString("o"), "message", message, "kind", kind));
             if (events.Count > 100) events.RemoveAt(events.Count - 1);
             if (page == "activity") RenderEvents();
+        }
+        private Dictionary<string, object> ActivityExport(Dictionary<string, object> diagnostics)
+        {
+            return Json.Data("app", "Viso", "mode", "sandbox", "exported_at", DateTime.UtcNow.ToString("o"),
+                "desktop_version", typeof(MainWindow).Assembly.GetName().Version.ToString(),
+                "windows_version", Environment.OSVersion.Version.ToString(), "diagnostics", diagnostics, "events", events);
         }
         private void RenderEvents()
         {

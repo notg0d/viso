@@ -8,6 +8,27 @@ Recorded on **2026-11-11, `test` branch**. Desktop **0.8.1** and installed sign-
 
 The documentation/browser-layout update adds two static-host regressions to the 111-test hotfix baseline. Commands below use temporary or memory-only test state; a passing suite does not authorize installation or establish biometric accuracy.
 
+## Unreleased camera compatibility and diagnostics
+
+The [pinned Windows Face Unlock source review](windows-face-unlock-review.md) informed serial startup fallback and explicit, privacy-conscious Activity export. These source changes are **not in the published v0.8.1 ZIP** and do not modify the installed 0.8.0 sign-in components, encrypted account links or enrollment.
+
+Validated on **2026-11-11**, using synthetic drivers, temporary/memory-only state and the existing public portrait fixtures:
+
+- **135 Python tests passed:** the 119-test packaging baseline plus 16 new fallback/diagnostic regressions. Actual shared `Camera` tests cover negotiated/default DirectShow, last-choice Media Foundation, constructor rejection, failed/invalid initial reads, mandatory valid frames, one shared deadline, blocked-constructor timeout, cancellation during startup, release-before-fallback, release-failure retirement, no streaming reopen, immutable raw samples, preview-free capture and read-only/private diagnostic snapshots. Existing 30 fps sampling, stop/read races, fresh prompt/eye rules, real-model inference and encrypted storage coverage remain passing.
+- **Native WPF smoke passed**, including all **63 raster/resource cases**, real isolated-worker diagnostics and Activity export shape/version checks, stale-generation camera-error rejection, both enrollment circuits, reduced motion, minimum layouts, control gating and image enrollment/photo rejection/deletion. `test-results/native/diagnostics.json` records a camera-off snapshot; Activity and minimum-layout captures were inspected.
+- **Sign-in build/component checks passed:** actual C++ DLL activation/lifecycle tests, **59 C# service/protocol checks**, **11 deployment ownership/ACL/reparse checks** and **25 packaged service-to-Python checks** against a newly copied private runtime containing the changed shared backend. Import isolation, checksums, real blank-frame inference, standby/suspend/Job cleanup remain passing. This is not an installation or a LocalSystem physical-camera test.
+
+Run on `test`:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s backend/tests -v
+.\scripts\build-native.ps1 -SmokeTest
+.\scripts\build-signin.ps1 -Test
+.\scripts\test-signin-runtime.ps1
+```
+
+No physical camera, real account password, privileged installation, automatic locking or new dependency was used. Fallback success/latency on real drivers and cross-backend camera-index mapping remain unverified. A blocked native call cannot be forcibly canceled by the Python startup budget; no second handle is opened while it is stuck. Existing sleep/reboot/MSA/multi-user and presentation-attack manual gates still apply. Test files and added smoke-only assertions remain on `test`; production changes and this evidence record are promoted separately.
+
 ## 0.8.1 runnable Windows packaging
 
 [Release packaging](releases.md) adds a private Python runtime, dependency/model notices, provenance and hash manifests, and an isolated worker entry point. Extraction testing reproduced OpenCV's Unicode Windows filename failure; verified model buffers now avoid that path API. Recognition rules and model/dependency pins are unchanged.

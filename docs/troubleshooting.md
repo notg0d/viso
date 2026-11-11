@@ -12,6 +12,8 @@
 | **Python package install fails** | Check that the selected Python is 64-bit and has wheels for the pinned packages. Python 3.14 is the verified development version; see [requirements](getting-started.md#requirements). Do not install multiple OpenCV wheels into the same environment. |
 | **Cannot replace `Viso.exe` during build** | Close the running app before `.\scripts\build-native.ps1`. Do not delete your enrollment to fix an executable lock. |
 | **Camera stops after changing pages, minimizing, locking, or sleep** | This is deliberate cancellation. Restart the camera/test; old frames and challenge evidence must not resume. |
+| **Camera driver did not stop/release** | Close Viso before retrying. Startup fallback never opens a second handle while a blocked driver owns the first. Reconnect the camera or restart Windows if other apps cannot use it. |
+| **Source build uses a different camera after fallback** | DirectShow and Media Foundation may order devices differently. Check the preview/backend/index; disconnect unneeded cameras while diagnosing. Physical multi-camera mapping is not verified. |
 | **Enrollment does not capture a direction** | Follow the actual indicated direction with both eyes open, pause briefly, and keep movement small. A cardinal turn cannot fill a diagonal view. Recenter between circles only. |
 | **Eyes not confirmed open / blink missed** | Improve lighting, reduce glasses glare, move closer, and face the camera more directly. Blink both eyes normally after the prompt, then reopen; do not substitute a head turn or wink. Physical-camera behavior remains experimental. |
 | **Profile cannot be opened** | Current-user DPAPI belongs to the Windows user/machine that created it. The unreadable profile is preserved until explicit reset. Resetting removes it; if sign-in is linked, read the [unlink/delete rules](windows-signin.md#update-disable-remove) first. |
@@ -48,5 +50,7 @@ The fix bounds visual progress, not authentication evidence. It needs no re-enro
 For provider lifecycle tracing, use the opt-in [diagnostics setting](windows-signin.md#provider-diagnostics), then disable it after diagnosis. Do not include passwords, encrypted account records, images, or face embeddings in a bug report.
 
 ## Report a useful reproduction
+
+In the unreleased source build, **Activity → Export JSON** includes allowlisted runtime/camera diagnostics: versions, model readiness, storage mode, backend/index, startup outcomes/time, source dimensions and sampled cadence. No camera is opened and nothing is uploaded. The published v0.8.1 ZIP does not yet include this diagnostic update. Metadata excludes credentials, identifiers, images/vectors and raw driver exceptions, but existing event messages can contain a chosen profile name or an error path; review/redact before sharing. The snapshot describes the desktop worker, not the separately installed sign-in runtime.
 
 Include Windows/Python versions, desktop and installed sign-in versions separately, camera model, action sequence, storage mode, and the visible error. For crashes, the Windows Application log may contain `.NET Runtime` / `Application Error` entries for `Viso.exe`. Redact personal/account information before sharing. See [Contributing](../CONTRIBUTING.md#reporting-a-problem).

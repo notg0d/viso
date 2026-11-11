@@ -12,7 +12,7 @@ Viso.exe — C# / WPF, .NET Framework 4.8 (x64)
   └─ UTF-8 JSON over redirected child-process stdin/stdout
                     │ private pipes, no listening port
 Python native worker (backend/viso/native.py)
-  ├─ DirectShow camera thread, monotonic timestamps, bounded six-frame queue
+  ├─ DirectShow-first camera thread, bounded startup fallback, six-frame queue
   ├─ 15 Hz preview events, coalesced before WPF presentation
   ├─ Serialized recognition and enrollment/attempt commands
   ├─ Explicit native prompt acknowledgment discards pre-prompt camera frames
@@ -25,7 +25,7 @@ The native worker emits `ready` when its command transport/profile store is avai
 
 [Release ZIPs](releases.md) include a private `runtime/python.exe`; source checkouts use `.venv/Scripts/python.exe` as the fallback. Both launch `backend/run_native.py` with `-I -B -u`: only the payload root is explicitly added to Python's import path, environment/user-site overrides are ignored, and bytecode caches are disabled. Python reads verified model bytes before passing them to OpenCV/MediaPipe, avoiding narrow Windows filename APIs for Unicode paths.
 
-UI preferences are separate from face data, in `.viso/desktop.json`. Session exports contain messages and times only. Face profiles retain the existing compatible `.viso/profile.dpapi` format. The private pipes are a desktop transport, not a privileged pre-login authentication boundary.
+UI preferences are separate from face data, in `.viso/desktop.json`. Source-build session exports add allowlisted runtime/camera diagnostics to messages and times, excluding images/vectors, credentials, profile metadata and raw diagnostic exceptions. Existing event text can contain a profile name or an error path and needs review before sharing. Face profiles retain the existing compatible `.viso/profile.dpapi` format. The private pipes are a desktop transport, not a privileged pre-login authentication boundary. [Reference review and unreleased changes](windows-face-unlock-review.md).
 
 ### Optional native Windows sign-in
 
@@ -41,7 +41,7 @@ VisoSignInService.exe (LocalSystem, Program Files)
   ├─ Revision-checked commit/release and serialized vault mutations
   └─ One prewarmed Job-contained Python process (-I -B), consumed once per scan
         ├─ Fixed 0.55 match threshold; current-model camera profile
-        ├─ Service-owned DirectShow capture and fresh blink acknowledgment
+        ├─ Service-owned shared Camera capture and fresh blink acknowledgment
         └─ Acceptance → one-use local/MSA Windows credential serialization
 ```
 
@@ -129,6 +129,8 @@ Unlock references train only on fully matched strict-open frames in the initial 
 ### Capture timing
 
 The native capture thread retains up to six immutable raw BGR frames at the driver's negotiated cadence, sampling at up to 40 Hz. Only the desktop preview is encoded: at most 15 Hz, a 720-pixel long edge, JPEG quality 80. Sign-in disables preview encoding entirely. Recognition uses the original frame up to a 960-pixel long edge, and repeated polling of one captured frame cannot advance enrollment. Native timestamps use the same process monotonic clock as the attempt. Stop drops retained images before waiting on the driver; a late read cannot repopulate the stopped queue.
+
+Unreleased source startup tries negotiated DirectShow, default DirectShow and default Media Foundation once each, serially, within one 12-second budget. A nonempty BGR uint8 frame is mandatory; failed handles are released before fallback. Blocked calls retain the one-owner restriction and 3-second stop join; release failures prohibit reuse. Streaming interruption never triggers fallback or resumes old evidence. Numeric indices can differ between backends; physical/multi-camera mapping is unverified. The v0.8.1 ZIP and installed 0.8.0 sign-in runtime retain their earlier capture implementation.
 
 `CameraSampler` uses video-frame callbacks and a reused JPEG canvas independently of HTTP requests. Sampling targets 20 Hz, retaining at most six recent frames; camera frames older than 450 ms are discarded before sending. Batches contain images and monotonic millisecond offsets relative to starting the attempt. The server validates finite, strictly increasing offsets, a six-frame limit, and a receipt-time window of -250 to +750 ms to allow initial request transit. Blink durations use capture time rather than the speed at which a buffered batch is processed. Wall-clock expiry remains server-enforced.
 

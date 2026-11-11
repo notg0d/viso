@@ -32,7 +32,7 @@ The service accepts no supplied images or biometric success claims. It authentic
 | `.viso/desktop.json` | Desktop preferences, separate from face data. This is not an encrypted biometric vault. |
 | Memory-only session | Profile lives only in the worker and is not written to disk. Does not create/update a Windows account link. |
 | `%ProgramData%\Viso\Accounts\<SID>.dpapi` | Optional sign-in account kind/name, **saved account password**, imported profile snapshot, camera index, and revision, encrypted with **machine-scope DPAPI**. Administrators/SYSTEM-only ACLs are essential. |
-| Activity/export | Session timestamps and decision messages; no face vectors or camera frames. |
+| Activity/export | Session timestamps/messages; unreleased source adds allowlisted runtime/camera metadata, excluding credentials, identifiers, vectors/frames and raw diagnostic exceptions. Event text may contain a chosen profile name or an error path; review before sharing. |
 | `tests/.fixtures/` / `test-results/` | Development-only public portraits and automated artifacts, ignored by Git. Not user enrollment. |
 
 Current-user DPAPI protects data at rest, not against every process running as the same Windows user. Machine-scope DPAPI alone is not per-user isolation; protected ProgramData ownership/ACLs and service caller checks provide that isolation. A profile cannot be ported by simply copying its encrypted file to another user/machine.
