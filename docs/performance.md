@@ -1,4 +1,35 @@
-# Responsiveness: 0.7.1
+# Responsiveness and resource ownership
+
+[← Documentation](README.md) · [Current validation](testing.md) · [Research](enrollment-resume-research.md)
+
+Measurements are dated component observations on one development machine, not product-wide speed, memory, or accuracy guarantees. Sections for 0.7/0.7.1 are historical.
+
+## Circular enrollment and bounded residency (0.8.0, test branch)
+
+Measured on the development Windows machine on 2026-11-11 with Python 3.14.7 / NumPy 2.3.5. No physical camera, real account password, or stored user profile was used. Run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\benchmark_matcher.py
+```
+
+The deterministic matcher benchmark warms each path, then takes the median of five 3,000-call runs. The baseline reproduces 0.7.1's per-vector normalization/comparison, applied to the same number of views. Circular matching also applies the stricter distinct-pose consensus rule; this is not an identical scoring policy.
+
+| Matcher-only component | Per-vector baseline | Compiled float32 | Speedup |
+|---|---:|---:|---:|
+| Legacy five views | 186.65 µs | 21.28 µs | 8.77× |
+| Circular 17 views | 536.12 µs | 21.63 µs | 24.79× |
+
+The circular compiled arrays occupy **9,288 bytes**; legacy arrays occupy 3,072 bytes. Legacy scores agree within 2.98×10⁻⁸ in the synthetic comparison. `tracemalloc` peaks across 100 calls were 4,226→3,944 bytes (five views) and 4,335→3,952 bytes (17 views). These are temporary traced peaks, **not total allocation traffic or application working-set reductions**. Full report: git-ignored `test-results/matcher.json`.
+
+The realistic-float synthetic circular profile was 51,282 JSON bytes and 51,560 DPAPI bytes, below the 64 KiB link cap and 128 KiB stored-profile cap. The actual C# serializer/service-to-worker test independently validated a 49,462-character 17-view profile and rejected an inconsistent observation count.
+
+One warmed, camera-closed packaged worker in the pre-install runtime run measured **172,912,640 working-set bytes (~165 MiB)** and **480,780,288 private bytes (~459 MiB)**. Previously an unused standby could live indefinitely. It now has a 60-second lease and is killed on suspend, initialization failure and service disposal. The 25 packaged-runtime checks exercise real timed expiry with a shortened test lease, a production-length lease's monotonic deadline, stale timer callbacks, Job exit and standby consumption/replacement. This bounds residency; it does not claim that every running app uses 165 MiB less or measure lock-to-desktop latency. Desktop models still remain loaded while the app is open. An expired cache trades idle memory for cold model-loading latency on the next scan.
+
+Other ownership changes: cancel the losing desktop/service deadline timer; poll preview only while the camera is running; drop raw camera images before driver join and reject late reads after stop; cache/freeze ring pens and glow rather than allocate them on every render. No forced GC, working-set trimming, threshold reductions or online template learning.
+
+Circular enrollment captures neutral plus two eight-direction circuits: 17 averaged views from at least 51 distinct open-eye observations, versus five averaged views previously. This improves pose coverage, **not a measured biometric accuracy rate**. Sign-in still requires 0.55 identity matching, a fresh prompted blink and reopened-eye confirmation. Repeated views of one pose cannot supply two consensus votes.
+
+Physical long sleep, hibernate, Modern Standby and enrollment/false-accept testing have **not** been run for 0.8.0. The user-authorized administrator upgrade is now installed: retained account-link hashes, 19 installed binary/backend/model hashes, x64 registration, automatic LocalSystem service startup and 25 installed-runtime checks passed. Actual authentication has not been tested with this build; historical unlock results below concern earlier releases only. See [research](enrollment-resume-research.md) and [current validation](testing.md).
 
 ## Camera startup fix (0.7.1)
 
@@ -14,7 +45,7 @@ Measured on camera index 0 on 2026-11-08; frames were not saved:
 
 The previous run spent 1.391 s reconfiguring resolution and 1.624 s setting nominal FPS. Both paths delivered 960×540 frames from the same 960×720 size request. Separate 60-frame probes measured about 17.3–17.4 fps with and without the nominal FPS setting in the available light; requesting 30 fps did not make this camera deliver 30 fps. These are local camera-start timings, not full authentication timings or guarantees for other hardware. The updated capture checks also verified immutable raw frames and release/queue cleanup across all six opens.
 
-After this change, all 99 Python checks and the native WPF smoke checks passed. The desktop assembly, manifest, and visible Settings version now identify 0.7.1.
+At that release, all 99 Python checks and the native WPF smoke checks passed. The desktop assembly, manifest, and visible Settings version identified 0.7.1.
 
 ## Automatic-submit handoff fix (0.7.1)
 
@@ -43,6 +74,8 @@ The frame comparison used the same 720×900 portrait, warmed models, and 24 obse
 The sign-in standby worker loaded its models in 1.46 s before receiving any profile. A subsequent synthetic profile validation dispatched in 0.63 ms. That measures ready-worker dispatch only, not face verification. Real scan latency also includes the camera driver opening, exposure settling, finding a usable face, the user's blink, and Windows authentication. Those end-to-end timings require testing the installed update.
 
 ## Verification
+
+This section records the earlier **0.7/0.7.1** validation, not the current 0.8 build. See [current results](testing.md) for the newer suite.
 
 - 99 Python checks: identity/eye behavior, raw frame validation, no sign-in JPEG encoding, no duplicate enrollment sampling, wider pose regions, prompt acknowledgment, stale frames, cancellation, and profile storage.
 - Native provider checks: actual DLL activation, local/MSA protected credential packing, automatic selection, UI-thread status callbacks, no automatic retry loop, canceled queued callbacks, unload, and no serialization before verification.

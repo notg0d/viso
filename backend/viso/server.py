@@ -15,6 +15,7 @@ from .service import ApiError, SandboxService
 from .storage import ProfileStore
 
 ROOT = Path(__file__).resolve().parents[2]
+BROWSER_DIST = ROOT / "experiments" / "browser" / "dist"
 MAX_BODY = 16_000_000
 
 
@@ -99,7 +100,7 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError("File not found.", 404)
         if not target.is_file():
             if path == "/":
-                return self.send_content(503, b"Build the Viso UI with npm run build, or open the Vite development server.", "text/plain")
+                return self.send_content(503, b"Build the historical browser bench with npm --prefix experiments/browser run build, or open its Vite development server. The native desktop app does not use this host.", "text/plain")
             raise ApiError("File not found.", 404)
         mime = {".js": "text/javascript", ".css": "text/css", ".html": "text/html"}.get(target.suffix) or mimetypes.guess_type(target.name)[0] or "application/octet-stream"
         self.send_content(200, target.read_bytes(), mime)
@@ -129,7 +130,7 @@ def main():
         print(f"[Viso] {engine_error}", flush=True)
     service = SandboxService(engine, ProfileStore(args.data_dir, args.ephemeral), engine_error)
     try:
-        server = SandboxServer(("127.0.0.1", args.port), service, ROOT / "dist")
+        server = SandboxServer(("127.0.0.1", args.port), service, BROWSER_DIST)
     except OSError as error:
         parser.exit(1, f"Could not start Viso on port {args.port}: {error}\n")
     url = f"http://127.0.0.1:{server.server_port}"

@@ -1,19 +1,24 @@
+# Local runtime and browser dependency/build output (also applies when nested)
 node_modules/
 dist/
 .venv/
 .viso/
+# Python caches
 __pycache__/
 *.py[cod]
 .pytest_cache/
+# Downloaded model payloads and their upstream license files
 models/*.onnx
 models/*.task
 models/*.partial
 models/licenses/
+# Downloaded public fixtures and generated reports
 tests/.fixtures/
 *.log
 *.tsbuildinfo
 test-results/
 playwright-report/
 .env
+# Native binaries
 desktop/bin/
 signin/bin/

@@ -1,5 +1,7 @@
 # Third-party components
 
+These notices apply to the identified upstream components. This repository does not currently declare a project-wide license; the upstream MIT text below is not a license grant for all Viso code.
+
 ## Recognition models
 
 The model downloader uses OpenCV Zoo revision `48b10fa505aeb51fbd127fc60a5c660040e823b7`. Exact model sizes and SHA-256 hashes are in `models/manifest.json`.
@@ -15,9 +17,9 @@ MediaPipe Face Landmarker uses the versioned `face_landmarker/float16/1/face_lan
 
 ## Libraries
 
-- React / React DOM — MIT.
-- Vite / TypeScript and their build dependencies — see installed package license files.
-- Lucide icons — ISC.
+- React / React DOM — MIT; historical `experiments/browser/` only.
+- Vite / TypeScript and their build dependencies — historical browser package; see installed package license files.
+- Lucide icons — ISC; historical browser package.
 - OpenCV — Apache-2.0; Python wheel distributions include their license notices.
 - NumPy — BSD-3-Clause.
 - The optional Windows sign-in runtime includes the installed CPython interpreter and standard library — Python Software Foundation License; its `LICENSE` file is copied into the private runtime. Dependency `.dist-info` and model license files are retained in the payload.
@@ -25,13 +27,13 @@ MediaPipe Face Landmarker uses the versioned `face_landmarker/float16/1/face_lan
 
 ## Glance enrollment animation
 
-`desktop/Viso/EnrollmentRing.cs` and the earlier `src/EnrollmentGuide.tsx` / `src/styles.css` adapt the ring, turn-band, and directional-light behavior from [jonnyoo/glance](https://github.com/jonnyoo/glance), revision `b97f521397ec1197ba17768ba797cae1e628848d`:
+`desktop/Viso/EnrollmentRing.cs` and the earlier `experiments/browser/src/EnrollmentGuide.tsx` / `experiments/browser/src/styles.css` adapt the ring, turn-band, and directional-light behavior from [jonnyoo/glance](https://github.com/jonnyoo/glance), revision `b97f521397ec1197ba17768ba797cae1e628848d`:
 
 - `glance/Onboarding/EnrollmentRingView.swift`
 - `glance/Onboarding/EnrollmentDirectionSweep.swift`
 - `glance/Onboarding/EnrollmentSweepWindowController.swift`
 
-The native WPF theme also takes design inspiration from `GlanceTheme.swift` and `SettingsWindowView.swift`: dark surfaces, blue enrollment accents, focused prompts, and a floating bottom navigation bar. Viso adapts the animation to its five-pose engine-driven enrollment and camera panel. Glance branding assets and model weights are not bundled.
+The native WPF theme also takes design inspiration from `GlanceTheme.swift` and `SettingsWindowView.swift`: dark surfaces, blue enrollment accents, focused prompts, and a floating bottom navigation bar. The current native adaptation uses two eight-direction circuits; the historical browser adaptation retains five-pose guidance. Progress is engine-driven in both designs. Glance branding assets and model weights are not bundled.
 
 MIT License
 

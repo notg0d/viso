@@ -2,7 +2,7 @@
   "name": "viso",
   "version": "0.5.0",
   "private": true,
-  "description": "Viso — local Windows face-unlock test bench",
+  "description": "Viso — historical browser recognition bench (not the native desktop app)",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
