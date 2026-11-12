@@ -1,6 +1,6 @@
 # Shared test fixtures
 
-[← Development](../docs/development.md) · [Validation](../docs/testing.md)
+[← Development](../docs/development.md) · [Validation commands](../docs/development.md#validate-changes)
 
 `tests/.fixtures/` is the stable, git-ignored location for downloaded public example portraits used by Python and native smoke checks. It remains at the root even though the browser package moved.
 

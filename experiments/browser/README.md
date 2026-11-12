@@ -1,6 +1,6 @@
 # Historical browser bench
 
-[← Viso](../../README.md) · [Development](../../docs/development.md) · [Earlier browser validation](../../docs/history/browser-validation.md)
+[← Viso](../../README.md) · [Development](../../docs/development.md)
 
 This is the earlier React/TypeScript/Vite recognition sandbox. **It is not the current Windows desktop UI and is not required to build or run Viso.** Its source, package/lockfile, configs, and camera-sampler tests are kept together here.
 

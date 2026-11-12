@@ -212,6 +212,21 @@ namespace Viso.SignIn
             }
             Console.WriteLine("Checking standby leases, stale timer callbacks and suspend job cleanup...");
             using (var service = new SignInService(root, 60000)) {
+                Invoke(service, "PrepareBootWorker"); var prepared = Field<Worker>(service, "standby"); Check(prepared != null);
+                long deadline = Field<long>(service, "standbyDeadline");
+                double remaining = (deadline - Stopwatch.GetTimestamp()) * 1000.0 / Stopwatch.Frequency;
+                Check(remaining > 240000 && remaining <= SignInService.BootStandbyLeaseMilliseconds);
+                Invoke(service, "PrepareWorker"); Invoke(service, "PrepareBootWorker");
+                Check(Field<Worker>(service, "standby") == prepared && Field<HashSet<Worker>>(service, "workers").Count == 1);
+                Check(Field<long>(service, "standbyDeadline") == deadline); // Notifications cannot renew it forever.
+                await prepared.Ready;
+                using (var process = Process.GetProcessById(prepared.ProcessId)) {
+                    typeof(SignInService).GetField("standbyDeadline", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(service, Stopwatch.GetTimestamp() - 1);
+                    Invoke(service, "RetireStandby"); Check(process.WaitForExit(3000));
+                    Check(Field<Worker>(service, "standby") == null && Field<HashSet<Worker>>(service, "workers").Count == 0);
+                }
+            }
+            using (var service = new SignInService(root, 60000)) {
                 Invoke(service, "PrepareWorker"); var prepared = Field<Worker>(service, "standby"); Check(prepared != null);
                 await prepared.Ready;
                 using (var process = Process.GetProcessById(prepared.ProcessId)) {
@@ -245,6 +260,10 @@ namespace Viso.SignIn
                     // request a camera, while exercising actual standby consumption.
                     var consumed = (Task)typeof(SignInService).GetMethod("WithWorker", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(service, new object[] {
                         new Account { Profile = "{}" }, "verify", new Func<Worker, Task>(async delegate(Worker worker) {
+                            // Reproduce boot/session warmup arriving after a scan
+                            // consumes the cache. Never load a competing standby.
+                            Invoke(service, "PrepareWorker"); Invoke(service, "PrepareBootWorker");
+                            Check(Field<Worker>(service, "standby") == null && Field<HashSet<Worker>>(service, "workers").Count == 1);
                             Check(worker == prepared && Convert.ToString((await worker.Next())["event"]) == "error");
                         }), Field<int>(service, "powerGeneration")
                     });
@@ -253,6 +272,8 @@ namespace Viso.SignIn
                     while (Field<Worker>(service, "standby") == null && deadline.ElapsedMilliseconds < 3000) await Task.Delay(10);
                     var replacement = Field<Worker>(service, "standby");
                     Check(replacement != null && replacement != prepared && Field<HashSet<Worker>>(service, "workers").Count == 1);
+                    double remaining = (Field<long>(service, "standbyDeadline") - Stopwatch.GetTimestamp()) * 1000.0 / Stopwatch.Frequency;
+                    Check(remaining > 50000 && remaining <= 60000); // Retries keep the short lease.
                     await replacement.Ready;
                 }
             }
