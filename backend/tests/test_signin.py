@@ -35,6 +35,8 @@ class SignInTests(unittest.TestCase):
             {"attempt": {"state": "unlocked", "message": "Accepted"}},
         ])
         host = Mock(signin_camera=2)
+        host.signin_exposure_assist = True
+        host.camera.diagnostics.return_value = {"exposure": "off"}
         def handle(command, data):
             calls.append((command, data))
             return next(results) if command == "attempt.tick" else {}
@@ -44,10 +46,29 @@ class SignInTests(unittest.TestCase):
             self.assertEqual(calls[-1][0], "attempt.tick")
             return True
         verify(host, events.append, ack)
-        self.assertEqual(calls[0], ("camera.start", {"index": 2}))
+        self.assertEqual(calls[0], ("camera.start", {"index": 2, "exposure_assist": True}))
         self.assertEqual(calls[1], ("attempt.start", {"threshold": .55}))
         self.assertEqual([call[0] for call in calls][4], "attempt.ack")
         self.assertEqual(events[-1], {"event": "accepted"})
+        self.assertEqual(calls[-1][0], "camera.stop")
+
+    def test_lighting_guidance_keeps_blink_prompt_and_rollback_status(self):
+        host = Mock(signin_camera=0, signin_exposure_assist=True)
+        host.camera.diagnostics.return_value = {"exposure": "limited"}
+        lighting = {"state": "low", "scope": "face", "brightness": 30, "message": "Low light: add a light in front of you."}
+        def handle(command, data):
+            if command == "attempt.tick":
+                return {"attempt": {"state": "scanning", "message": "Blink now"}, "prompt_pending": True, "observation": {"lighting": lighting}}
+            return {}
+        host.handle.side_effect = handle
+        events = []
+        with self.assertRaises(ValueError):
+            verify(host, events.append, lambda: False)
+        self.assertEqual(events[0]["event"], "prompt")
+        self.assertTrue(events[0]["message"].startswith("Blink now "))
+        self.assertIn("Low light", events[0]["message"])
+        self.assertIn("unavailable", events[0]["message"])
+        self.assertNotIn("accepted", str(events))
 
     def test_cancel_or_expiry_never_releases_credential(self):
         for state in ("expired", "locked", "rejected", "scanning"):

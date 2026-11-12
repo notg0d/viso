@@ -22,6 +22,7 @@ playwright-report/
 # Native binaries
 desktop/bin/
 desktop/releases/
+desktop/release-archive/
 signin/bin/
 
 # Personal research, measurements and validation reports remain local only.

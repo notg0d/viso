@@ -25,6 +25,10 @@ class FakeCamera:
     def __init__(self):
         self.samples = []
         self.stopped = False
+        self.control_revision = 0
+
+    def evidence_revision(self):
+        return self.control_revision
 
     def frame(self):
         if self.stopped:
@@ -85,6 +89,44 @@ class NativeHostTests(unittest.TestCase):
         self.assertNotIn(result["attempt"]["id"], self.service.attempts)
         with self.assertRaises(ApiError):
             self.host.handle("attempt.tick", {})
+
+    def test_exposure_rollback_revokes_prompt_and_inflight_confirmation(self):
+        for during_inference in (False, True):
+            with self.subTest(during_inference=during_inference):
+                started = self.start()
+                self.tick([100.1, 100.2, 100.3], [observation()] * 3, 100.4)
+                with patch("backend.viso.native.monotonic", return_value=100.45):
+                    self.host.handle("attempt.ack", {})
+                attempt = self.service.attempts[started["attempt"]["id"]]
+                self.camera.samples = [(100.5, "open"), (100.55, "closed"), (100.6, "open"), (100.75, "confirm")]
+                observations = iter([observation(), observation("closed"), observation(), observation()])
+                def observe(*args, **kwargs):
+                    result = next(observations)
+                    if during_inference:
+                        self.camera.control_revision += 1
+                    return result
+                if not during_inference:
+                    self.camera.control_revision += 1
+                with patch("backend.viso.native.monotonic", return_value=100.8), \
+                        patch("backend.viso.service.monotonic", return_value=100.8), \
+                        patch.object(self.service, "observe", side_effect=observe), \
+                        self.assertRaisesRegex(ApiError, "exposure changed"):
+                    self.host.handle("attempt.tick", {})
+                self.assertNotIn(started["attempt"]["id"], self.service.attempts)
+                if during_inference:
+                    # Even an otherwise complete match/blink result is withheld.
+                    self.assertEqual(attempt.public()["state"], "unlocked")
+                self.assertIsNone(self.host.attempt_id)
+                self.assertFalse(self.host.awaiting_prompt)
+
+    def test_exposure_change_revokes_an_unacknowledged_prompt(self):
+        self.start()
+        self.tick([100.1, 100.2, 100.3], [observation()] * 3, 100.4)
+        self.camera.control_revision += 1
+        with self.assertRaisesRegex(ApiError, "exposure changed"):
+            self.host.handle("attempt.ack", {})
+        self.assertFalse(self.service.attempts)
+        self.assertFalse(self.host.awaiting_prompt)
 
     def test_cancel_discards_incomplete_enrollment_without_saving(self):
         self.store.clear()

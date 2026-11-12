@@ -4,7 +4,13 @@
 
 The [0.8.2 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.2) and unchanged [0.8.1 desktop-only ZIP](https://github.com/notg0d/viso/releases/tag/v0.8.1) are experimental pre-releases; earlier entries describe development builds. Work is validated on `test`, then production source/documentation is synchronized to `main` without test sources, runners/fixtures, benchmarks, or the historical browser bench. Desktop and separately installed sign-in components can have different versions.
 
-## Unreleased — startup and repository cleanup
+## 0.8.3 — lighting assistance and startup reliability (release candidate)
+
+- Measured lighting feedback in desktop capture and Windows sign-in: low, overly bright, uneven or usable. Face measurements are distinguished from scene-only estimates. Feedback is advisory and never bypasses recognition or eye-detail checks.
+- Separate, off-by-default desktop/sign-in exposure assistance. Supported DirectShow controls are read back, bounded to at most 15.6 ms and tuned only before capture starts; slow/overbright capture rolls back and requires a fresh scan if a blink challenge is active. Unsupported controls leave capture available. Normal shutdown restores original settings; process/driver crashes cannot guarantee restoration.
+- Save a linked account’s camera/exposure options without replacing its enrollment or password. Old encrypted records and preferences default assistance to off; settings changes revoke in-flight verification.
+- No new runtime dependencies, screen fill light, software image brightening, model changes or relaxed match/blink thresholds. Hardware low-light performance, cold boot and current-build Windows unlock remain unverified.
+- New installer version; previous public `v0.8.2` assets remain unchanged. This candidate is built locally, not automatically published or installed.
 
 - Extend the startup-only model cache to five minutes; subsequent locks/retries retain the 60-second lease. The camera stays closed until a selected scan.
 - Avoid background model prewarm competing with an already active worker during startup/session-notification races. Identity, blink, cancellation and one-shot worker isolation are unchanged. Physical cold-boot latency still needs measurement after deployment.

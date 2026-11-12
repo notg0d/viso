@@ -54,6 +54,16 @@ The installer creates protected directories atomically. Retained `%ProgramData%\
 
 The service preloads models in one unused, Job-contained Python worker at startup, session lock, interactive resume and after each scan. This standby worker receives no profile and opens no camera. The unreleased startup fix allows the initial service-start cache **five minutes**; later locks/retries keep the **60-second** lease. Duplicate notifications do not renew the lease, and no competing background prewarm starts while a worker is active. Failed initialization/suspend/service disposal retires it immediately. A scan consumes it once and destroys it on success, error, cancellation, or timeout; no profile, eye calibration, or camera frame carries into the next worker. An expired standby means the next attempt loads models cold. Only one scan can hold the camera at a time. The desktop stops its camera on session lock and power changes. The sign-in match threshold is fixed at **0.55**; the desktop threshold slider affects simulator tests only. Recognition attempts expire after 20 seconds, with an outer 45-second worker deadline covering initialization and IPC. The provider accepts a released credential once, for at most 10 seconds.
 
+### Lighting feedback and optional exposure assistance (0.8.3)
+
+The selected sign-in tile includes measured lighting guidance alongside the real face/blink instruction. A scene estimate is used before a usable face is detected; an aligned-face measurement is preferred afterward. “Usable” lighting is not proof of identity or adequate eye detail.
+
+In desktop **Settings**, refresh sign-in status, choose the camera, set **Exposure assistance for Windows sign-in**, then click **Save sign-in camera settings**. This explicitly updates only the current linked account’s camera options, without requesting a password or replacing its face profile. It also invalidates verification using the previous settings. Desktop capture has a separate checkbox. Old records/preferences keep assistance off by default.
+
+Assistance reads supported DirectShow controls and calibrates before capture is made available (normally about 0.8–1.5 additional seconds). It raises exposure by at most two log2 steps and never above **15.6 ms**; measured capture must remain at least **24 Hz**. Controls are read back. Slow or overly bright capture rolls back; an active blink challenge is revoked and requires a fresh scan. Unsupported/limited drivers keep ordinary capture usable. Media Foundation fallback does not receive speculative control writes. No exposure increases occur during the blink challenge.
+
+Original exposure/auto settings are restored on normal camera shutdown, including before a successful worker result is released. Restoration is best effort when a driver hangs or a process is forcibly killed; restart the camera or use its own settings if needed. No screen fill light or software brightening is used. Identity thresholds, fresh-frame checks and blink/open-eye requirements are unchanged. Real low-light hardware testing is still required; add a light in front of you if the image remains inadequate.
+
 ### Default selection and automatic scanning
 
 Viso supplies a default tile for a linked account. Windows gives preference to the last successfully used provider, subject to device policy and its own selection rules. Choose Viso and complete one sign-in; subsequent locks can select that tile automatically. Viso does not force a machine-wide provider policy. Automatic scanning begins when the credential tile is selected on the sign-in screen, not behind the wallpaper-only lock screen.
@@ -66,7 +76,7 @@ If recognition, the camera, the service, or a saved password fails, select your 
 
 ## Update, disable, remove
 
-- **Password, enrollment, or camera changed:** use **Link / update account** again. The service keeps a snapshot; desktop changes do not silently replace it. Relink after renaming the Windows account/computer or changing the Microsoft-account sign-in identity.
+- **Password or enrollment changed:** use **Link / update account** again. The service keeps a snapshot; desktop changes do not silently replace it. Relink after renaming the Windows account/computer or changing the Microsoft-account sign-in identity. In 0.8.3, camera/exposure-only changes use **Save sign-in camera settings** instead.
 - **Disable one account:** click **Disable face sign-in**. The encrypted service record is deleted; desktop enrollment remains.
 - **Delete desktop enrollment:** persistent-mode deletion first unlinks the current service account. If the installed service is stopped, start it before deleting so an enabled service copy is not left behind. Ephemeral sessions do not alter the persistent link.
 - **Concurrent changes:** unlink/relink invalidates pending link commits and verification against an older record. A credential already released to LogonUI is one-use and expires after 10 seconds; unlink cannot retract a serialization Windows has already received.
@@ -102,7 +112,7 @@ For callback/automatic-submit troubleshooting, administrator PowerShell can set 
 
 ## Stored data and trust boundary
 
-- `%ProgramData%\Viso\Accounts\<SID>.dpapi` contains the account kind/name, password, imported face profile, camera index, and a revision ID, encrypted with machine-scope DPAPI. The directory's administrator/SYSTEM-only ACL is essential: machine-scope DPAPI alone is not per-user isolation.
+- `%ProgramData%\Viso\Accounts\<SID>.dpapi` contains the account kind/name, password, imported face profile, camera index, optional exposure-assistance flag, and a revision ID, encrypted with machine-scope DPAPI. The directory's administrator/SYSTEM-only ACL is essential: machine-scope DPAPI alone is not per-user isolation.
 - Clients verify that `Viso.SignIn.v1` belongs to the running SCM service PID. The service identifies clients by pipe impersonation and restricts credential requests to LocalSystem `System32\LogonUI.exe` in an interactive session. The pipe denies network callers.
 - The bounded UTF-8 pipe protocol accepts no client image frames or claimed biometric success. The private worker receives profile/camera data, never the account password. Python runs with `-I -B` and a restricted executable search path; a kill-on-close Job Object contains it.
 - Passwords are not logged or exported. Byte buffers and native password strings are cleared after use; .NET's immutable strings mean guaranteed immediate erasure of every managed-memory copy is not claimed.

@@ -48,6 +48,8 @@ namespace Viso.SignIn
             Reject(delegate { Native.AccountName("microsoft", "AzureAD\\person@example.com"); });
             Reject(delegate { Native.AccountName("microsoft", "user"); });
             Reject(delegate { Native.AccountName("work", "user"); });
+            Check(SignInService.ParseExposureAssist("true") && !SignInService.ParseExposureAssist("false"));
+            foreach (string option in new[] { "1", "True", "", null }) Reject(delegate { SignInService.ParseExposureAssist(option); });
             var caller = new Native.Caller { Sid = "S-1-5-18", System = true, Session = 1, Image = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "LogonUI.exe") };
             caller.RequireLogonUI(); Check(true);
             caller.System = false; Reject(caller.RequireLogonUI); caller.System = true;
@@ -62,6 +64,23 @@ namespace Viso.SignIn
                 var account = new Account { Sid = sid, Kind = "microsoft", Qualified = "MicrosoftAccount\\fake@example.com", Password = "Fake credential 42", Profile = "{}", Revision = "one", Camera = 0 };
                 vault.Save(account); var loaded = vault.Load(sid);
                 Check(loaded.Password == account.Password && loaded.Qualified == account.Qualified);
+                // Serialize a real pre-0.8.3 record with no assistance field.
+                var legacy = new { account.Sid, account.Kind, account.Qualified, account.Password, account.Profile, account.Revision, account.Camera };
+                byte[] clear = Encoding.UTF8.GetBytes(new JavaScriptSerializer().Serialize(legacy));
+                try { File.WriteAllBytes(Path.Combine(directory, sid + ".dpapi"), System.Security.Cryptography.ProtectedData.Protect(clear, null, System.Security.Cryptography.DataProtectionScope.LocalMachine)); }
+                finally { Array.Clear(clear, 0, clear.Length); }
+                loaded = vault.Load(sid);
+                Check(!loaded.ExposureAssist); // Old account records default to off.
+                long previousSettings = vault.Version(sid);
+                vault.SetCameraSettings(sid, 2, true);
+                var tuned = vault.Load(sid);
+                Check(tuned.Camera == 2 && tuned.ExposureAssist && tuned.Password == account.Password && tuned.Profile == account.Profile);
+                Check(tuned.Revision != loaded.Revision && !vault.IsCurrent(loaded));
+                Reject(delegate { vault.SaveIfCurrent(account, previousSettings); });
+                Reject(delegate { vault.SetCameraSettings(sid, 33, true); });
+                vault.SetCameraSettings(sid, 0, false);
+                loaded = vault.Load(sid);
+                Check(!loaded.ExposureAssist && loaded.Camera == 0);
                 Check(!Encoding.UTF8.GetString(File.ReadAllBytes(Directory.GetFiles(directory).Single())).Contains(account.Password));
                 Check(SignInService.Matches(loaded, sid, "microsoft", "MicrosoftAccount\\FAKE@example.com"));
                 Check(!SignInService.Matches(loaded, "S-1-5-21-1-2-3-1001", "microsoft", account.Qualified));

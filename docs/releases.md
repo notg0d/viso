@@ -4,6 +4,8 @@
 
 ## Download and run
 
+**0.8.3 release candidate:** the updated source adds lighting feedback, opt-in exposure assistance and startup reliability fixes. A locally built `Viso-0.8.3-Setup-x64.exe` is not automatically published or installed. Its adjacent `.sha256`, `.exe.json` and `.exe.validation.json` identify that exact build and its unverified gates. The public downloads below remain unchanged until an explicit release is published.
+
 Choose the distribution deliberately. Both are unsigned **experimental pre-releases**, require **Windows 10/11 x64 and .NET Framework 4.8**, and include the private Python runtime, dependencies, recognition models and upstream notices. Windows on ARM is unsupported.
 
 | Download | Installation and scope |

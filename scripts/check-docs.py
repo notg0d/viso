@@ -10,7 +10,7 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 IGNORED = {
     ".git", ".venv", ".viso", ".fixtures", ".pytest_cache", "__pycache__",
-    "node_modules", "dist", "bin", "releases", "test-results", "playwright-report",
+    "node_modules", "dist", "bin", "releases", "release-archive", "test-results", "playwright-report",
 }
 
 

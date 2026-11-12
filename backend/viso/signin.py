@@ -46,18 +46,35 @@ def validate_profile(profile):
 
 
 def verify(host, emit, acknowledge):
-    host.handle("camera.start", {"index": host.signin_camera})
+    start = host.handle("camera.start", {"index": host.signin_camera,
+                                         "exposure_assist": host.signin_exposure_assist})
+    lighting = start.get("lighting")
+    exposure = start.get("exposure", "off")
     host.handle("attempt.start", {"threshold": .55})
     last_message = None
     while True:
         result = host.handle("attempt.tick", {})
         attempt = result["attempt"]
         if attempt["state"] == "unlocked":
+            # Restore camera controls before the service may retire this worker.
+            host.handle("camera.stop", {})
             emit({"event": "accepted"})
             return
         if attempt["state"] != "scanning":
             raise ValueError(attempt["message"])
         message = attempt["message"]
+        exposure = host.camera.diagnostics().get("exposure", exposure)
+        observed = result.get("observation", {}).get("lighting")
+        if observed:
+            lighting = observed
+        # Keep the actual challenge first: lighting guidance must never replace
+        # or invent a blink prompt. Only bounded advisory text crosses the pipe.
+        if lighting:
+            message += (" Face lighting: " if lighting.get("scope") == "face" else " Scene lighting: ") + lighting["message"]
+        if exposure == "tuned":
+            message += " Exposure assistance active."
+        elif exposure in ("unsupported", "limited", "restore_failed"):
+            message += " Exposure assistance unavailable; use better lighting."
         if result.get("prompt_pending"):
             emit({"event": "prompt", "message": message})
             if not acknowledge():
@@ -98,8 +115,14 @@ def main():
         camera = Camera(lambda event: None, preview=False)
         host = NativeHost(SandboxService(engine, store), camera)
         host.signin_camera = request.get("camera", 0)
+        host.signin_exposure_assist = request.get("exposure_assist", False)
         verify(host, emit, lambda: sys.stdin.readline(128).strip() == "ack")
     except Exception as error:
+        if camera is not None:
+            try:
+                camera.stop()
+            except Exception:
+                pass
         emit({"event": "error", "message": str(error)})
         sys.exit(1)
     finally:

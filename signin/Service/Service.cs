@@ -13,12 +13,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 
+[assembly: System.Reflection.AssemblyVersion("0.8.3.0")]
+
 namespace Viso.SignIn
 {
     internal sealed class Account
     {
         public string Sid, Kind, Qualified, Password, Profile, Revision;
         public int Camera;
+        public bool ExposureAssist;
         public void Forget() { Password = null; Profile = null; }
     }
 
@@ -57,6 +60,17 @@ namespace Viso.SignIn
             } finally { Array.Clear(clear, 0, clear.Length); }
         }
         public void Delete(string sid) { File.Delete(PathFor(sid)); versions[sid] = Version(sid) + 1; }
+        public void SetCameraSettings(string sid, int camera, bool exposureAssist)
+        {
+            if (camera < 0 || camera > 32) throw new ArgumentException("Choose an available camera.");
+            var account = Load(sid);
+            if (account == null) throw new InvalidOperationException("Link this Windows account first.");
+            try {
+                account.Camera = camera; account.ExposureAssist = exposureAssist;
+                account.Revision = Guid.NewGuid().ToString("N");
+                Save(account); // Revoke any scan using the previous camera settings.
+            } finally { account.Forget(); }
+        }
         public void SaveIfCurrent(Account account, long version)
         {
             if (Version(account.Sid) != version) throw new InvalidOperationException("Account link changed while linking. Start again in Viso Settings.");
@@ -109,7 +123,7 @@ namespace Viso.SignIn
         public void Start(Account account, string command)
         {
             var serializer = new JavaScriptSerializer { MaxJsonLength = Wire.Limit };
-            input.WriteLine(serializer.Serialize(new { command = command, profile = serializer.DeserializeObject(account.Profile), camera = account.Camera }));
+            input.WriteLine(serializer.Serialize(new { command = command, profile = serializer.DeserializeObject(account.Profile), camera = account.Camera, exposure_assist = account.ExposureAssist }));
         }
         private async Task<Dictionary<string, object>> ReadEvent()
         {
@@ -280,13 +294,22 @@ namespace Viso.SignIn
                     Account account;
                     await vault.Gate.WaitAsync().ConfigureAwait(false);
                     try { account = vault.Load(caller.Sid); } finally { vault.Gate.Release(); }
-                    try { await Wire.Send(pipe, "ok", account == null ? "Not linked" : "Linked: " + account.Qualified, account == null ? "" : account.Kind).ConfigureAwait(false); }
+                    try { await Wire.Send(pipe, "ok", account == null ? "Not linked" : "Linked: " + account.Qualified, account == null ? "" : account.Kind,
+                        account == null ? "" : account.Camera.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        account != null && account.ExposureAssist ? "true" : "false").ConfigureAwait(false); }
                     finally { if (account != null) account.Forget(); }
                 } else if (request[0] == "unlink" && request.Length == 1) {
                     await vault.Gate.WaitAsync().ConfigureAwait(false);
                     try { vault.Delete(caller.Sid); } finally { vault.Gate.Release(); }
                     await Wire.Send(pipe, "ok", "Windows face sign-in disabled for this account.").ConfigureAwait(false);
-                } else if (request[0] == "link" && request.Length == 6) {
+                } else if (request[0] == "camera.settings" && request.Length == 3) {
+                    int index; bool assist = ParseExposureAssist(request[2]);
+                    if (!int.TryParse(request[1], out index) || index < 0 || index > 32) throw new ArgumentException("Choose an available camera.");
+                    await vault.Gate.WaitAsync().ConfigureAwait(false);
+                    try { RequirePowerGeneration(generation); vault.SetCameraSettings(caller.Sid, index, assist); }
+                    finally { vault.Gate.Release(); }
+                    await Wire.Send(pipe, "ok", "Windows sign-in camera settings saved. No relinking is needed.").ConfigureAwait(false);
+                } else if (request[0] == "link" && (request.Length == 6 || request.Length == 7)) {
                     long version;
                     await vault.Gate.WaitAsync().ConfigureAwait(false);
                     try { version = vault.Version(caller.Sid); } finally { vault.Gate.Release(); }
@@ -294,7 +317,8 @@ namespace Viso.SignIn
                     Native.ValidatePassword(qualified, request[3], caller.Sid);
                     int index;
                     if (!int.TryParse(request[5], out index) || index < 0 || index > 32 || request[4].Length > 65536) throw new InvalidDataException("Invalid enrollment settings.");
-                    var account = new Account { Sid = caller.Sid, Kind = request[1], Qualified = qualified, Password = request[3], Profile = request[4], Camera = index, Revision = Guid.NewGuid().ToString("N") };
+                    var account = new Account { Sid = caller.Sid, Kind = request[1], Qualified = qualified, Password = request[3], Profile = request[4], Camera = index,
+                        ExposureAssist = request.Length == 7 && ParseExposureAssist(request[6]), Revision = Guid.NewGuid().ToString("N") };
                     try {
                         await WithWorker(account, "validate", async delegate(Worker worker) {
                             var result = await worker.Next().ConfigureAwait(false);
@@ -392,6 +416,11 @@ namespace Viso.SignIn
         internal static bool Matches(Account account, string sid, string kind, string qualified)
         {
             return account != null && account.Sid == sid && account.Kind == kind && string.Equals(account.Qualified, qualified, StringComparison.OrdinalIgnoreCase);
+        }
+        internal static bool ParseExposureAssist(string value)
+        {
+            if (value != "true" && value != "false") throw new ArgumentException("Exposure assistance must be on or off.");
+            return value == "true";
         }
         private static void ObserveFailure(Task task)
         {
