@@ -35,7 +35,7 @@ Viso pairs a **native C#/WPF desktop** with a local Python recognition worker. E
 
 **[Download the complete Windows x64 installer](https://github.com/notg0d/viso/releases/download/v0.8.2/Viso-0.8.2-Setup-x64.exe)** and its [checksum](https://github.com/notg0d/viso/releases/download/v0.8.2/Viso-0.8.2-Setup-x64.exe.sha256). [Verify the download](docs/releases.md#verify-the-download), close Viso, run Setup and approve its administrator prompt and experimental-sign-in warning. Open Viso from the Start menu as your ordinary Windows user.
 
-Desktop, Python, dependencies, models and sign-in components are included. Requires **Windows 10/11 x64 and .NET Framework 4.8**; Windows on ARM is unsupported. Setup does not enroll faces or collect/link credentials. First-time users enroll and explicitly link their account in Settings. This unsigned **experimental pre-release** has [open installation/authentication validation gates](docs/testing.md#082-complete-installer).
+Desktop, Python, dependencies, models and sign-in components are included. Requires **Windows 10/11 x64 and .NET Framework 4.8**; Windows on ARM is unsupported. Setup does not enroll faces or collect/link credentials. First-time users enroll and explicitly link their account in Settings. This unsigned **experimental pre-release** still needs clean-machine installer, reboot, and current-build physical authentication validation.
 
 **Desktop only, without a sign-in installation?** The unchanged [v0.8.1 portable ZIP](https://github.com/notg0d/viso/releases/tag/v0.8.1) remains available. Extract the entire archive to a user-writable folder and open `Viso.exe`; no administrator installation is needed. [Downloads, storage, verification and updates →](docs/releases.md)
 
@@ -97,8 +97,8 @@ Existing five-view profiles remain compatible. For circular coverage, re-enroll 
 | Run Viso or fix a setup problem | [Getting started](docs/getting-started.md) · [Troubleshooting](docs/troubleshooting.md) |
 | Understand recognition and data boundaries | [Architecture](docs/architecture.md) · [Security & privacy](docs/security.md) |
 | Build, test, or contribute | [Development](docs/development.md) · [Contributing](CONTRIBUTING.md) · [Script index](scripts/README.md) |
-| Check evidence, not marketing claims | [Validation](docs/testing.md) · [Measured performance](docs/performance.md) |
-| Explore decisions and earlier releases | [Research](docs/enrollment-resume-research.md) · [Project comparison](docs/windows-face-unlock-review.md) · [Changelog](CHANGELOG.md) |
+| Understand limitations and test changes | [Security](docs/security.md) · [Validation commands](docs/development.md#validate-changes) |
+| Explore earlier releases | [Changelog](CHANGELOG.md) |
 
 ## Repository at a glance
 
@@ -109,7 +109,7 @@ signin/              Optional provider, service, and shared protocol
 installer/           Complete Windows Setup and protected deployment/recovery
 scripts/             Production setup, build, and deployment entry points
 models/manifest.json Pinned model sources and checksums; weights are downloaded
-docs/                User guides, technical references, evidence, and history
+docs/                User guides and technical references
 ```
 
 | Branch | Contents |

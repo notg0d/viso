@@ -23,7 +23,7 @@ Running the desktop does not require Node.js, Electron, WebView, a .NET SDK, or 
 3. Run Setup and approve the administrator prompt and experimental-sign-in warning. Open Viso from the Start menu as your ordinary Windows user.
 4. For first-time use, follow enrollment below; enable Windows sign-in only by explicitly linking your account in Settings with its password, not a Hello PIN. Setup never enrolls, collects credentials, links accounts or opens the camera.
 
-Python, dependencies and models are bundled. Installed desktop state uses `%LOCALAPPDATA%\Viso`; portable/source profiles are not migrated automatically. Installer lifecycle and current-build authentication [manual gates remain open](testing.md#082-complete-installer).
+Python, dependencies and models are bundled. Installed desktop state uses `%LOCALAPPDATA%\Viso`; portable/source profiles are not migrated automatically. Installer lifecycle, reboot and current-build physical authentication still need manual validation.
 
 ### Portable desktop only (0.8.1)
 

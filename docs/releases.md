@@ -22,7 +22,7 @@ Download these four release assets as needed; only the executable is needed to i
 
 After verification, close Viso in every Windows session, run Setup and accept its administrator/sign-in-risk prompts. Open Viso from the Start menu as your ordinary Windows user. First-time users enroll a face and explicitly link their account in Settings using the account password, not a Hello PIN. Setup never enrolls, collects credentials, links accounts or opens the camera.
 
-The tag is pinned to production build commit `3f35b09`; only the latest logo-equipped, native-PowerShell-corrected build is published. Do not use superseded local installers. Final elevated embedded-payload verification, clean-machine installation/lifecycle/reboot and current-build physical authentication remain [open validation gates](testing.md#082-complete-installer). Read the [installer storage, upgrades/removal and recovery guide](installer.md), and keep normal Windows password/PIN access available.
+The tag is pinned to production build commit `3f35b09`; only the latest logo-equipped, native-PowerShell-corrected build is published. Do not use superseded local installers. Final elevated embedded-payload verification, clean-machine installation/lifecycle/reboot and current-build physical authentication remain open validation gates. Read the [installer storage, upgrades/removal and recovery guide](installer.md), and keep normal Windows password/PIN access available.
 
 ### Portable desktop only (0.8.1)
 

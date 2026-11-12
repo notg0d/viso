@@ -1,6 +1,6 @@
 # Development
 
-[← Documentation](README.md) · [Architecture](architecture.md) · [Testing](testing.md) · [Script index](../scripts/README.md)
+[← Documentation](README.md) · [Architecture](architecture.md) · [Script index](../scripts/README.md)
 
 ## Repository map
 
@@ -18,7 +18,7 @@
 | [`models/manifest.json`](../models/manifest.json) | Version-pinned model sizes, sources, and SHA-256 values. |
 | [`tests/` on `test`](https://github.com/notg0d/viso/blob/test/tests/README.md) | Shared downloaded portrait-fixture location. Browser tests live with the browser package. |
 | [`experiments/browser/` on `test`](https://github.com/notg0d/viso/blob/test/experiments/browser/README.md) | Historical React/TypeScript/Vite bench with its own package and lockfile; not on `main`. |
-| [`docs/`](README.md) | Guides, reference, validation records, research, and historical notes. |
+| [`docs/`](README.md) | Public setup guides and technical references; personal reports are local-only. |
 
 The native startup code discovers the root by finding `backend/run_native.py`. In source checkouts, keep `desktop/`, `backend/`, `signin/Shared/`, `.venv/`, and `models/` in their documented locations. Release ZIPs keep `Viso.exe` at the root and substitute a private `runtime/` for `.venv/`. Do not relocate local data as part of routine cleanup.
 
@@ -69,7 +69,7 @@ For provider/service changes, with the C++ tools and Windows SDK installed:
 .\scripts\test-signin-runtime.ps1
 ```
 
-These component/runtime checks do not register a provider, open the camera, or use real account passwords. They do not replace [integrated manual validation](testing.md#windows-sign-in-validation). **Building is not installing.** Deployment requires a separate, intentional administrator operation; see [Windows sign-in](windows-signin.md).
+These component/runtime checks do not register a provider, open the camera, or use real account passwords. They do not replace integrated manual validation of real local/Microsoft-account linking, physical camera/blink verification, reboot, sleep/resume, multi-user behavior and installer upgrades/removal. **Building is not installing.** Deployment requires a separate, intentional administrator operation; see [Windows sign-in](windows-signin.md).
 
 To reproduce the matcher component benchmark:
 
@@ -106,7 +106,7 @@ Existing ignored root `src/`, `node_modules/`, `dist/`, and `tsconfig.tsbuildinf
 
 - Keep first-run instructions in [Getting started](getting-started.md), privileged deployment in [Windows sign-in](windows-signin.md), and the README short and product-focused.
 - Use relative links for shared documentation. Use explicit `test`-branch links for sources/tools intentionally absent from `main`.
-- Record version/date/environment and measured scope with benchmark or validation claims. Keep earlier evidence in `docs/history/`; never imply it proves the current build.
+- Record version/date/environment and measured scope with benchmark or validation claims. Keep personal research/performance/validation reports local and ignored; never imply earlier evidence proves the current build. Installer packaging copies only Git-tracked public documentation.
 - Keep desktop and installed sign-in versions separate. Branch publication is not a tagged product release.
 - Check local links with `scripts/check-docs.py`; external URLs still need human review.
 - Keep attribution and full upstream notices. No project-wide license is declared in this repository; upstream licenses do not assign one to Viso as a whole.

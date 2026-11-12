@@ -144,6 +144,7 @@ namespace Viso.SignIn
 
     internal sealed class SignInService : ServiceBase
     {
+        internal const int BootStandbyLeaseMilliseconds = 300000;
         private readonly string root;
         private readonly Vault vault = new Vault(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Viso", "Accounts"));
         private readonly SemaphoreSlim camera = new SemaphoreSlim(1, 1);
@@ -169,7 +170,7 @@ namespace Viso.SignIn
             if (!WindowsIdentity.GetCurrent().IsSystem || !root.Equals(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Viso"), StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Install Viso sign-in into Program Files and run it through Windows Services.");
             for (int i = 0; i < 8; i++) Task.Run((Func<Task>)Listen);
-            Task.Run((Action)PrepareWorker);
+            ObserveFailure(Task.Run((Action)PrepareBootWorker));
         }
         protected override void OnStop()
         {
@@ -351,18 +352,32 @@ namespace Viso.SignIn
         }
         private void PrepareWorker()
         {
+            PrepareWorkerFor(standbyLeaseMilliseconds);
+        }
+        private void PrepareBootWorker()
+        {
+            // First logon can follow device startup/updates or a user pausing at
+            // the lock screen. Keep that model-only cache for five minutes, not
+            // indefinitely; later locks/retries retain the ordinary short lease.
+            PrepareWorkerFor(BootStandbyLeaseMilliseconds);
+        }
+        private void PrepareWorkerFor(int leaseMilliseconds)
+        {
             // One unused, model-only process. Every verification consumes and
             // destroys it, so profiles, calibration and frames never cross attempts.
             // Warmup does not acquire the camera or read the account vault.
             try {
                 lock (workers) {
-                    if (stopping || suspended || standby != null) return;
+                    // Startup, tile selection and session notifications can race.
+                    // A consumed standby is still an active worker: do not launch
+                    // a second model load beside it and slow the requested scan.
+                    if (stopping || suspended || workers.Count != 0) return;
                     standby = new Worker(root, true); workers.Add(standby);
                     var prepared = standby;
                     // An unused model process is a latency cache, not permanent
                     // residency. Never retain a failed initialization until login.
-                    standbyDeadline = Stopwatch.GetTimestamp() + (long)(Stopwatch.Frequency * (standbyLeaseMilliseconds / 1000.0));
-                    standbyExpiry.Change(standbyLeaseMilliseconds, Timeout.Infinite);
+                    standbyDeadline = Stopwatch.GetTimestamp() + (long)(Stopwatch.Frequency * (leaseMilliseconds / 1000.0));
+                    standbyExpiry.Change(leaseMilliseconds, Timeout.Infinite);
                     prepared.Ready.ContinueWith(delegate(Task ready) {
                         var ignored = ready.Exception;
                         lock (workers) {

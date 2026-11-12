@@ -1,6 +1,6 @@
 # Script index
 
-[← Development](../docs/development.md) · [Testing](../docs/testing.md) · [Windows sign-in](../docs/windows-signin.md)
+[← Development](../docs/development.md) · [Validation commands](../docs/development.md#validate-changes) · [Windows sign-in](../docs/windows-signin.md)
 
 Run commands from the repository root in PowerShell. Python scripts use `.venv\Scripts\python.exe` after setup. **Build/test commands do not install Windows sign-in.** Production entry points are shared; validation-only scripts in the next section and `build-signin.ps1 -Test` require the `test` branch. `main` excludes their sources and the historical browser bench.
 
