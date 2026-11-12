@@ -6,9 +6,11 @@
 
 A native Windows face-recognition experience.<br>Two gentle circles to enroll. A fresh blink to verify. Processing stays on your PC.
 
-[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-2997ff?style=flat-square)](docs/getting-started.md) [![Desktop](https://img.shields.io/badge/Desktop-0.8.2-63cbb0?style=flat-square)](CHANGELOG.md) [![Runtime](https://img.shields.io/badge/Native-C%23%20%2B%20WPF-7d8ca4?style=flat-square)](docs/architecture.md) [![Status](https://img.shields.io/badge/Status-experimental-d5a75e?style=flat-square)](docs/security.md)
+[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-2997ff?style=flat-square)](docs/getting-started.md) [![Desktop](https://img.shields.io/badge/Desktop-0.8.3-63cbb0?style=flat-square)](CHANGELOG.md) [![Runtime](https://img.shields.io/badge/Native-C%23%20%2B%20WPF-7d8ca4?style=flat-square)](docs/architecture.md) [![Status](https://img.shields.io/badge/Status-experimental-d5a75e?style=flat-square)](docs/security.md)
 
 [**Download for Windows**](https://github.com/notg0d/viso/releases/tag/v0.8.2) · [**Get started**](#quick-start) · [**Documentation**](docs/README.md) · [**What's new**](CHANGELOG.md)
+
+Source is **0.8.3**, adding lighting feedback and optional, bounded exposure assistance for desktop and Windows sign-in. Its installer is a local release candidate pending publication; the download links still point to the unchanged public **0.8.2**. Assistance defaults to off and does not replace good lighting or relax authentication checks.
 
 <br>
 

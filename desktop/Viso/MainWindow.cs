@@ -32,6 +32,9 @@ namespace Viso
         private readonly object previewGate = new object();
         private BitmapSource nextPreview;
         private int previewGeneration, cameraGeneration;
+        private Dictionary<string, object> nextLighting;
+        private string nextExposure;
+        private DateTime faceLightingUntil;
         private int epoch;
         private string page = "face", operation = "";
         private bool busy, ticking, cameraOn, closed, initialized;
@@ -141,12 +144,16 @@ namespace Viso
             Click("ClearActivity", delegate { events.Clear(); RenderEvents(); return Task.FromResult(0); });
             Click("RefreshCameras", RefreshCameras);
             Find<TextBox>("SignInAccount").Text = Environment.UserName;
-            Click("RefreshSignIn", async delegate { Text("SignInStatus", await SignInSettings.Status()); });
+            Click("RefreshSignIn", RefreshSignInStatus);
+            Click("SaveSignInCamera", async delegate {
+                Text("SignInStatus", await SignInSettings.SaveCamera(cameraIndex, Find<CheckBox>("SignInExposureAssist").IsChecked == true));
+                Log("Windows sign-in camera settings updated.");
+            });
             Click("LinkSignIn", async delegate {
                 var password = Find<PasswordBox>("SignInPassword");
                 try {
                     await StopCamera();
-                    string message = await SignInSettings.Link(dataDirectory, Find<ComboBox>("SignInAccountKind").SelectedIndex == 1 ? "microsoft" : "local", Find<TextBox>("SignInAccount").Text, password.Password, cameraIndex);
+                    string message = await SignInSettings.Link(dataDirectory, Find<ComboBox>("SignInAccountKind").SelectedIndex == 1 ? "microsoft" : "local", Find<TextBox>("SignInAccount").Text, password.Password, cameraIndex, Find<CheckBox>("SignInExposureAssist").IsChecked == true);
                     Text("SignInStatus", message); Log("Windows face sign-in account link updated.");
                 } finally { password.Clear(); }
             });
@@ -157,6 +164,8 @@ namespace Viso
                 Text("LabResult", "Ready to inspect this photo."); UpdateControls();
             };
             Find<ComboBox>("CameraPicker").SelectionChanged += delegate { if (initialized) { cameraIndex = Math.Max(0, Find<ComboBox>("CameraPicker").SelectedIndex); SavePreferences(); } };
+            Find<CheckBox>("ExposureAssist").Checked += delegate { if (initialized) SavePreferences(); };
+            Find<CheckBox>("ExposureAssist").Unchecked += delegate { if (initialized) SavePreferences(); };
             Find<Slider>("Threshold").ValueChanged += delegate { Text("ThresholdValue", Find<Slider>("Threshold").Value.ToString("F2")); if (initialized) SavePreferences(); };
             Find<CheckBox>("ReduceMotion").Checked += delegate { UpdateMotion(); if (initialized) SavePreferences(); };
             Find<CheckBox>("ReduceMotion").Unchecked += delegate { UpdateMotion(); if (initialized) SavePreferences(); };
@@ -187,6 +196,7 @@ namespace Viso
                         if (preferences.Get("threshold") != null) Find<Slider>("Threshold").Value = Math.Max(.35, Math.Min(.9, preferences.Number("threshold")));
                         Find<CheckBox>("ReduceMotion").IsChecked = preferences.Flag("reduce_motion");
                         cameraIndex = Math.Max(0, Math.Min(32, (int)preferences.Number("camera_index")));
+                        Find<CheckBox>("ExposureAssist").IsChecked = preferences.Flag("exposure_assist");
                     } catch { /* A malformed UI preference cannot affect profile storage. */ }
                 }
                 UpdateMotion(); SetPage("face");
@@ -231,7 +241,7 @@ namespace Viso
                 try
                 {
                     BitmapSource frame = DecodeBitmap(Convert.FromBase64String(message.Text("image")), 720);
-                    lock (previewGate) { nextPreview = frame; previewGeneration = (int)message.Number("generation"); }
+                    lock (previewGate) { nextPreview = frame; previewGeneration = (int)message.Number("generation"); nextLighting = message.Child("lighting"); nextExposure = message.Text("exposure"); }
                 }
                 catch { }
             }
@@ -249,8 +259,16 @@ namespace Viso
         private void PresentPreview()
         {
             BitmapSource preview = null;
-            lock (previewGate) { if (cameraOn && previewGeneration == cameraGeneration) preview = nextPreview; nextPreview = null; }
-            if (preview != null) SetPreview(preview);
+            Dictionary<string, object> lighting = null; string exposure = null;
+            lock (previewGate) {
+                if (cameraOn && previewGeneration == cameraGeneration) { preview = nextPreview; lighting = nextLighting; exposure = nextExposure; }
+                nextPreview = null; nextLighting = null;
+            }
+            if (preview != null) {
+                SetPreview(preview);
+                if (DateTime.UtcNow >= faceLightingUntil) ApplyLighting(lighting);
+                ApplyExposure(exposure);
+            }
         }
         private void SetPreview(BitmapSource frame)
         {
@@ -261,10 +279,11 @@ namespace Viso
         {
             Text("CameraStatus", "Opening camera…");
             Dictionary<string, object> result;
-            try { result = await engine.Send("camera.start", Json.Data("index", cameraIndex)); }
+            try { result = await engine.Send("camera.start", Json.Data("index", cameraIndex, "exposure_assist", Find<CheckBox>("ExposureAssist").IsChecked == true)); }
             catch { ClearPreview(); throw; }
             if (ticket != epoch || closed || window.WindowState == WindowState.Minimized) throw new OperationCanceledException();
             cameraOn = true; cameraGeneration = (int)result.Number("generation");
+            faceLightingUntil = DateTime.MinValue; ApplyLighting(result.Child("lighting")); ApplyExposure(result.Text("exposure"));
             timer.Start();
             Text("CameraStatus", "Live · on this PC"); Find<System.Windows.Shapes.Ellipse>("CameraDot").Fill = Brush("#65C7A0");
             Text("CaptureFeedback", "Center your face in the ring. The preview is mirrored.");
@@ -281,8 +300,11 @@ namespace Viso
         }
         private void ClearPreview()
         {
-            lock (previewGate) nextPreview = null;
+            lock (previewGate) { nextPreview = null; nextLighting = null; }
             SetPreview(null);
+            faceLightingUntil = DateTime.MinValue;
+            Text("LightingMetric", "Lighting · camera off"); Find<TextBlock>("LightingMetric").Foreground = Brush("#A6B1C0");
+            Text("ExposureMetric", "");
             Text("CameraStatus", "Camera off"); Find<System.Windows.Shapes.Ellipse>("CameraDot").Fill = Brush("#707986");
         }
         private async Task Suspend()
@@ -428,9 +450,25 @@ namespace Viso
         }
         private void ApplyObservation(Dictionary<string, object> observation)
         {
+            ApplyLighting(observation.Child("lighting"));
+            faceLightingUntil = DateTime.UtcNow.AddSeconds(1);
             var attention = observation.Child("attention");
             Text("EyeMetric", "Eyes " + attention.Text("eyes") + (attention.Text("eye_method") == "pose-calibrated" ? " · tilt adjusted" : ""));
             Text("InferenceMetric", observation.Number("latency_ms").ToString("F0") + " ms" + (observation.Get("similarity") != null ? " · similarity " + observation.Number("similarity").ToString("F3") : "") + (!observation.Flag("identity_checked") ? " · tracked" : ""));
+        }
+        private void ApplyLighting(Dictionary<string, object> lighting)
+        {
+            if (lighting == null || lighting.Get("state") == null) return;
+            string state = lighting.Text("state"), scope = lighting.Text("scope") == "face" ? "Face light" : "Scene light";
+            Text("LightingMetric", scope + " · " + (state == "low" ? "low — add a front light" : state == "bright" ? "too bright — avoid glare" : state == "uneven" ? "uneven — face the light" : state == "good" ? "usable" : "waiting"));
+            Find<TextBlock>("LightingMetric").Foreground = Brush(state == "good" ? "#77CDB0" : "#E1A179");
+            Find<TextBlock>("LightingMetric").ToolTip = lighting.Text("message");
+        }
+        private void ApplyExposure(string exposure)
+        {
+            Text("ExposureMetric", exposure == "tuned" ? "Exposure assist · active" : exposure == "unsupported" ? "Exposure assist · unsupported driver"
+                : exposure == "limited" ? "Exposure assist · capture-rate limit" : exposure == "restore_failed" ? "Exposure restore failed · restart camera"
+                : exposure == "not_needed" ? "Exposure assist · not needed" : "");
         }
         private string ObservationSummary(Dictionary<string, object> observation)
         {
@@ -472,6 +510,10 @@ namespace Viso
             Find<Button>("LinkSignIn").IsEnabled = !busy && !working && !ephemeral && !smoke && HasProfile && status.Child("profile").Flag("guided") && status.Child("profile").Text("source") == "camera";
             Find<Button>("UnlinkSignIn").IsEnabled = !busy && !smoke;
             Find<Button>("RefreshSignIn").IsEnabled = !busy && !smoke;
+            Find<Button>("SaveSignInCamera").IsEnabled = !busy && !working && !ephemeral && !smoke && SignInSettings.IsInstalled;
+            Find<CheckBox>("SignInExposureAssist").IsEnabled = !busy && !working;
+            Find<CheckBox>("ExposureAssist").IsEnabled = !busy && !cameraOn;
+            Find<ComboBox>("CameraPicker").IsEnabled = !busy && !cameraOn;
             Find<TextBox>("SignInAccount").IsReadOnly = busy;
             Find<ComboBox>("SignInAccountKind").IsEnabled = !busy;
             Find<PasswordBox>("SignInPassword").IsEnabled = !busy;
@@ -487,6 +529,18 @@ namespace Viso
             picker.ItemsSource = names; picker.SelectedIndex = Math.Min(cameraIndex, picker.Items.Count - 1);
             initialized = wasInitialized;
         }
+        private async Task RefreshSignInStatus()
+        {
+            try {
+                var result = await SignInSettings.CameraStatus();
+                Text("SignInStatus", result[1]);
+                if (result.Length >= 5) {
+                    Find<CheckBox>("SignInExposureAssist").IsChecked = result[4] == "true";
+                    Text("SignInCameraDetail", result[3] == "" ? "No linked sign-in camera." : "Saved sign-in camera index: " + result[3] + ". Save below to use the selected camera.");
+                }
+            } catch (TimeoutException) { Text("SignInStatus", "Sign-in service unavailable or timed out. Check the VisoSignIn Windows service."); }
+              catch (IOException) { Text("SignInStatus", "Sign-in service unavailable. Check the VisoSignIn Windows service."); }
+        }
         private void UpdateMotion() { Motion.Reduced = Find<CheckBox>("ReduceMotion").IsChecked == true; if (!Motion.Enabled) Motion.StopAll(); Ring.ReducedMotion = !Motion.Enabled; Ring.UpdateMotion(); }
         private void OnSystemSettings(object sender, PropertyChangedEventArgs args) { if (!closed) window.Dispatcher.BeginInvoke(new Action(UpdateMotion)); }
         private void OnSessionSwitch(object sender, SessionSwitchEventArgs args) { if (args.Reason == SessionSwitchReason.SessionLock && !closed) window.Dispatcher.BeginInvoke(new Action(async delegate { await Suspend(); })); }
@@ -498,7 +552,7 @@ namespace Viso
         private void SavePreferences()
         {
             if (smoke) return;
-            try { Directory.CreateDirectory(Path.GetDirectoryName(PreferencesPath)); File.WriteAllText(PreferencesPath, Json.Encode(Json.Data("threshold", Find<Slider>("Threshold").Value, "reduce_motion", Find<CheckBox>("ReduceMotion").IsChecked == true, "camera_index", cameraIndex))); }
+            try { Directory.CreateDirectory(Path.GetDirectoryName(PreferencesPath)); File.WriteAllText(PreferencesPath, Json.Encode(Json.Data("threshold", Find<Slider>("Threshold").Value, "reduce_motion", Find<CheckBox>("ReduceMotion").IsChecked == true, "camera_index", cameraIndex, "exposure_assist", Find<CheckBox>("ExposureAssist").IsChecked == true))); }
             catch (IOException error) { Fail(error); }
             catch (UnauthorizedAccessException error) { Fail(error); }
         }

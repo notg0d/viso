@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 
 from .attention import Attention, AttentionEngine
+from .lighting import measure_lighting
 
 MODEL_ID = "sface-2021dec-yunet-2023mar-v1"
 DEFAULT_THRESHOLD = 0.55
@@ -112,6 +113,7 @@ class Observation:
     latency_ms: float = 0
     attention: Attention | None = None
     identity_checked: bool = True
+    lighting: dict | None = None
 
     def public(self, score: float | None = None) -> dict:
         return {
@@ -124,6 +126,7 @@ class Observation:
             "similarity": round(score, 4) if score is not None else None,
             "attention": (self.attention or Attention()).public(),
             "identity_checked": self.identity_checked,
+            "lighting": self.lighting,
         }
 
 
@@ -157,6 +160,7 @@ class FaceEngine:
 
     def observe(self, image: np.ndarray, skip_recognition: Callable[[Attention, list[float]], bool] | None = None) -> Observation:
         start = perf_counter()
+        lighting = measure_lighting(image)
         height, width = image.shape[:2]
         # Detection needs far fewer pixels than eye geometry/recognition. Keep the
         # original image for both, and map all five YuNet landmarks back to it.
@@ -182,6 +186,7 @@ class FaceEngine:
                 aligned = self.recognizer.alignCrop(image, face)
                 gray = cv2.cvtColor(aligned, cv2.COLOR_BGR2GRAY)
                 brightness = float(gray.mean())
+                lighting = measure_lighting(aligned, "face")
                 sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
                 if brightness < 30 or brightness > 235:
                     result = Observation(1, "Use more even lighting on your face.", box=box)
@@ -193,5 +198,6 @@ class FaceEngine:
                     embedding = None if skip else normalized(self.recognizer.feature(aligned))
                     result = Observation(1, "Face ready", embedding, box, float(face[-1]),
                                          attention=attention, identity_checked=not skip)
+        result.lighting = lighting
         result.latency_ms = (perf_counter() - start) * 1000
         return result

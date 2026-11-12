@@ -21,6 +21,7 @@ import numpy as np
 from .recognition import FaceEngine, MODEL_ID
 from .service import ApiError, SandboxService
 from .storage import ProfileStore
+from .lighting import ExposureTuner, measure_lighting
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -43,6 +44,11 @@ class Camera:
         self.details = {}
         self.sample_times = deque(maxlen=40)
         self.unreleased_device = None
+        self.control_revision = 0
+
+    def evidence_revision(self):
+        with self.lock:
+            return self.control_revision
 
     @staticmethod
     def valid_frame(image):
@@ -55,6 +61,8 @@ class Camera:
         now = monotonic()
         with self.lock:
             result = dict(self.details)
+            if result.get("lighting") is not None:
+                result["lighting"] = dict(result["lighting"])
             result["attempts"] = [dict(attempt) for attempt in self.details.get("attempts", [])]
             latest = self.latest
             times = list(self.sample_times)
@@ -67,7 +75,9 @@ class Camera:
                       if len(times) > 1 and times[-1] > times[0] else None)
         return result
 
-    def start(self, index):
+    def start(self, index, exposure_assist=False):
+        if type(exposure_assist) is not bool:
+            raise ApiError("Exposure assistance must be on or off.")
         if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index <= 32:
             raise ApiError("Choose an available camera.")
         self.stop()
@@ -78,7 +88,8 @@ class Camera:
         with self.lock:
             self.sample_times.clear()
             self.details = {"index": index, "backend": None, "width": None, "height": None,
-                            "startup_ms": None, "failure": None, "attempts": []}
+                            "startup_ms": None, "failure": None, "attempts": [],
+                            "exposure": "off", "lighting": None}
         opened = threading.Event()
         startup_complete = False
         self.generation += 1
@@ -87,6 +98,7 @@ class Camera:
         def capture():
             nonlocal startup_complete
             device = None
+            tuner = None
 
             def interrupted():
                 if self.stopped.is_set():
@@ -101,6 +113,10 @@ class Camera:
                     current = device
                     device = None
                     try:
+                        if tuner is not None:
+                            tuner.restore()
+                            with self.lock:
+                                self.details["exposure"] = tuner.state
                         current.release()
                     except Exception:
                         self.unreleased_device = current
@@ -159,7 +175,9 @@ class Camera:
                         break
                 if image is None:
                     raise ApiError("Camera unavailable. Close other camera apps, check Windows desktop-app camera permissions, and choose the device in Settings.")
-                last_preview = last_sample = 0
+                tuner = ExposureTuner(device, backend, exposure_assist, monotonic())
+                last_preview = last_sample = last_lighting = 0
+                lighting = None
                 while not self.stopped.is_set():
                     if image is None:
                         ok, image = device.read()
@@ -170,6 +188,21 @@ class Camera:
                     now = monotonic()
                     if not startup_complete:
                         interrupted()
+                    # Calibrate only before exposing the first evidence frame.
+                    # No exposure increases occur during enrollment/blink prompts.
+                    if lighting is None or now - last_lighting >= .2 or not tuner.ready:
+                        lighting = measure_lighting(image)
+                        last_lighting = now
+                    if tuner.update(now, lighting):
+                        with self.lock:
+                            self.control_revision += 1
+                            self.latest = None
+                            self.frames.clear()
+                    with self.lock:
+                        self.details.update(lighting=lighting, exposure=tuner.state)
+                    if not tuner.ready or now < tuner.settling_until:
+                        image = None
+                        continue
                     # Keep each 30 fps frame: a 35 ms gate would halve a webcam's
                     # evidence rate to 15 fps and could miss brief blinks.
                     if now - last_sample < .025:
@@ -201,7 +234,8 @@ class Camera:
                             view = cv2.resize(image, (round(image.shape[1] * scale), round(image.shape[0] * scale)))
                         ok, jpeg = cv2.imencode(".jpg", view, [cv2.IMWRITE_JPEG_QUALITY, 80])
                         if ok and not self.stopped.is_set():
-                            self.emit({"event": "preview", "image": base64.b64encode(jpeg).decode("ascii"), "generation": generation})
+                            self.emit({"event": "preview", "image": base64.b64encode(jpeg).decode("ascii"), "generation": generation,
+                                       "lighting": lighting, "exposure": tuner.state})
                     image = None
             except Exception as error:
                 if not self.stopped.is_set():
@@ -238,7 +272,8 @@ class Camera:
         if self.stopped.is_set() or not startup_complete:
             raise ApiError("Camera startup canceled.")
         return {"running": True, "generation": generation, "backend": self.details["backend"],
-                "startup_ms": self.details["startup_ms"]}
+                "startup_ms": self.details["startup_ms"], "lighting": self.details["lighting"],
+                "exposure": self.details["exposure"]}
 
     def stop(self):
         self.stopped.set()
@@ -293,6 +328,7 @@ class NativeHost:
         self.attempt_id = None
         self.capture_after = 0
         self.awaiting_prompt = False
+        self.attempt_revision = None
 
     def cancel(self):
         if self.enrollment_id and self.service.enrollment is not None:
@@ -300,8 +336,16 @@ class NativeHost:
         if self.attempt_id in self.service.attempts:
             self.service.dispatch("DELETE", "/api/attempts/" + self.attempt_id)
         self.enrollment_id = self.attempt_id = None
+        self.attempt_revision = None
         self.awaiting_prompt = False
         self.camera.discard()
+
+    def require_attempt_revision(self):
+        # Capture can roll controls back while inference owns a batch. Never
+        # bridge eye calibration or a completed blink across that discontinuity.
+        if self.camera.evidence_revision() != self.attempt_revision:
+            self.cancel()
+            raise ApiError("Camera exposure changed. Start a new scan for a fresh blink challenge.", 409)
 
     def handle(self, command, data):
         dispatch = self.service.dispatch
@@ -322,7 +366,10 @@ class NativeHost:
             return result
         if command == "camera.start":
             self.cancel()
-            return self.camera.start(data.get("index", 0))
+            assist = data.get("exposure_assist", False)
+            if type(assist) is not bool:
+                raise ApiError("Exposure assistance must be on or off.")
+            return self.camera.start(data.get("index", 0), assist)
         if command == "camera.stop":
             self.cancel()
             self.camera.stop()
@@ -359,10 +406,12 @@ class NativeHost:
             self.cancel()
             result = dispatch("POST", "/api/attempts", {"source": "camera", "threshold": data.get("threshold", .55)})
             self.attempt_id = result["id"]
+            self.attempt_revision = self.camera.evidence_revision()
             self.capture_after = self.service.attempts[self.attempt_id].started_at
             self.camera.discard()
             return {"attempt": result}
         if command == "attempt.ack":
+            self.require_attempt_revision()
             # Called only after the native UI has presented the new prompt.
             # Discard frames captured before that point, including in-flight ones.
             self.capture_after = monotonic()
@@ -372,6 +421,7 @@ class NativeHost:
         if command == "attempt.tick":
             if not self.attempt_id or self.attempt_id not in self.service.attempts:
                 raise ApiError("Start an unlock test first.")
+            self.require_attempt_revision()
             attempt = self.service.attempts[self.attempt_id]
             if monotonic() - attempt.started_at > 20:
                 return {"attempt": attempt.observe(None)}
@@ -386,6 +436,7 @@ class NativeHost:
                 {"offset_ms": (captured - attempt.started_at) * 1000, "image": image}
                 for captured, image in samples
             ]})
+            self.require_attempt_revision()
             self.capture_after = samples[-1][0]
             if attempt.challenge != challenge:
                 self.awaiting_prompt = True

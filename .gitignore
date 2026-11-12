@@ -17,6 +17,7 @@ playwright-report/
 .env
 desktop/bin/
 desktop/releases/
+desktop/release-archive/
 signin/bin/
 
 # Test-only sources/tools and the historical browser bench stay off `main`.

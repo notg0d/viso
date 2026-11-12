@@ -32,7 +32,7 @@ class SandboxService:
 
     def status(self) -> dict:
         return {
-            "version": "0.8.0",
+            "version": "0.8.3",
             "mode": "sandbox",
             "token": self.token,
             "engine": {"ready": self.engine is not None, "loading": self.engine_loading, "id": MODEL_ID, "message": self.engine_error},
