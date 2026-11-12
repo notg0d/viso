@@ -10,7 +10,7 @@ Viso is not a replacement for validated biometric authentication. Its functional
 - Still-photo tests must remain locked. Passing that test does not prove resistance to screen/video replay, generated video, an injected feed, or a virtual camera driver.
 - More views provide direction coverage and averaging; they are not a measured biometric accuracy improvement. The compiled matcher is a component optimization, not faster end-to-end authentication evidence.
 - Closed, uncertain, or untrackable eyes cannot authorize a successful attempt. Display animation is never identity, pose, eye, or completion evidence.
-- Lighting, glasses, camera drivers, eyelid geometry, and real head motion need physical evaluation. Current-build authentication and long-sleep behavior remain [manual validation gates](testing.md#windows-sign-in-validation).
+- Lighting, glasses, camera drivers, eyelid geometry, and real head motion need physical evaluation. Current-build authentication and long-sleep behavior still need manual validation.
 
 Keep ordinary Windows password/PIN access and use a recoverable test environment for the sign-in prototype.
 

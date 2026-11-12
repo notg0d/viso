@@ -25,21 +25,16 @@ Start with the desktop. The all-in-one installer includes Windows sign-in; read 
 | [Contributing](../CONTRIBUTING.md) | Change scope, safety expectations, validation, and useful issue reports. |
 | [Third-party notices](../THIRD_PARTY_NOTICES.md) | Model sources, library licenses, and Glance attribution. |
 
-## Evidence and history
+## Releases and test tools
 
 | Record | You'll find |
 | :--- | :--- |
-| [Testing & validation](testing.md) | Current automated coverage, reproduction commands, manual scenarios, and open release gates. |
-| [Measured performance](performance.md) | Component benchmarks, camera-start measurements, memory residency, and measurement limits. |
-| [Enrollment, resources & wake research](enrollment-resume-research.md) | Primary sources, pre-implementation decisions, deployment checks, and the desktop hotfix. |
-| [Windows Face Unlock review](windows-face-unlock-review.md) | Pinned source comparison, security/lifecycle findings, and unreleased camera/diagnostic improvements. |
+| [Validation commands](development.md#validate-changes) | Reproduce automated checks from the `test` branch. |
 | [Changelog](../CHANGELOG.md) | Concise version history; desktop and sign-in versions kept separate. |
-| [Earlier native validation](history/native-validation.md) | The 0.7.1 physical-camera and automatic-submit results. |
-| [Earlier browser validation](history/browser-validation.md) | Historical 0.3–0.5 browser experiments and their limitations. |
 | [Browser experiment on `test`](https://github.com/notg0d/viso/blob/test/experiments/browser/README.md) | Running the archived React/Vite bench without making it a desktop dependency. |
 
 ## Read the status correctly
 
 The latest recorded snapshot is **2026-11-11**: the [v0.8.2 all-in-one Setup.exe](https://github.com/notg0d/viso/releases/tag/v0.8.2) is published as an **experimental pre-release**, built from clean production commit `3f35b09`. The public [v0.8.1 desktop-only ZIP](releases.md) remains unchanged. The separately authorized **`ac7ce8b` source sign-in update** is the last agent-verified development-machine installation; GitHub publication did not install or verify the new Setup on that machine. None of these is general authentication certification. Changes are developed/validated on `test`; only production source/documentation is promoted to `main`. Regression sources, runners/fixtures, benchmarks, and the historical browser bench remain **test-only**.
 
-Automated checks use synthetic state, temporary storage, and public portrait fixtures; they do not prove physical-camera accuracy or replay resistance. Earlier successful local-account unlocks do not validate the current sign-in build. See the [current evidence and remaining gates](testing.md).
+Automated checks use synthetic state, temporary storage, and public portrait fixtures; they do not prove physical-camera accuracy or replay resistance. Earlier successful local-account unlocks do not validate the current sign-in build. Clean-machine installer lifecycle, current-build authentication, reboot, long sleep, Microsoft-account and multi-user tests remain necessary. Personal research and validation reports are kept locally, not in this repository.

@@ -36,3 +36,11 @@ src/
 /package-lock.json
 /tsconfig.json
 /vite.config.ts
+
+# Personal research, measurements and validation reports remain local only.
+/docs/testing.md
+/docs/performance.md
+/docs/enrollment-resume-research.md
+/docs/windows-face-unlock-review.md
+/docs/history/native-validation.md
+/docs/history/browser-validation.md

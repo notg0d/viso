@@ -1,8 +1,14 @@
 # Changelog
 
-[Project overview](README.md) · [Validation evidence](docs/testing.md) · [Measurements](docs/performance.md)
+[Project overview](README.md) · [Development and validation](docs/development.md#validate-changes)
 
 The [0.8.2 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.2) and unchanged [0.8.1 desktop-only ZIP](https://github.com/notg0d/viso/releases/tag/v0.8.1) are experimental pre-releases; earlier entries describe development builds. Work is validated on `test`, then production source/documentation is synchronized to `main` without test sources, runners/fixtures, benchmarks, or the historical browser bench. Desktop and separately installed sign-in components can have different versions.
+
+## Unreleased — startup and repository cleanup
+
+- Extend the startup-only model cache to five minutes; subsequent locks/retries retain the 60-second lease. The camera stays closed until a selected scan.
+- Avoid background model prewarm competing with an already active worker during startup/session-notification races. Identity, blink, cancellation and one-shot worker isolation are unchanged. Physical cold-boot latency still needs measurement after deployment.
+- Keep personal research, comparison, performance and validation reports local and out of future installers; retain public setup/security/developer guides and attribution.
 
 ## 0.8.2 — complete Windows installer (experimental pre-release)
 
@@ -14,15 +20,15 @@ The [0.8.2 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.
 - Embedded Viso's face-scan logo in desktop/window/taskbar and Setup resources, explicit shortcut icons and the high-DPI header; reproducible build-only ICO generation covers ten sizes from 16 to 256px.
 - Published four assets from clean production commit `3f35b09`: Setup executable, SHA-256, provenance and pre-publication validation record. `v0.8.2` remains pinned to that build even as shared documentation is updated later; validation sources remain on `test` at `191ebfc`.
 - Exact-build validation: 67 app/Setup icon checks, 51 installer checks, 20 actual non-installing Inno launch checks, 140 Python tests, 63 native raster/resource cases, 25 bundled service-to-Python checks and 129 bundled local documentation links/assets. Production desktop startup/state IPC/synthetic DPAPI and worker cleanup passed from a spaces/Unicode path.
-- GitHub publication does not install anything or modify the existing v0.8.1 release. Final elevated embedded-executable verification, clean-machine install/upgrade/live rollback/uninstall/reboot and current-build physical authentication remain open gates; see [validation scope](docs/testing.md#082-complete-installer).
+- GitHub publication does not install anything or modify the existing v0.8.1 release. Final elevated embedded-executable verification, clean-machine install/upgrade/live rollback/uninstall/reboot and current-build physical authentication remain open gates.
 
 ### Camera compatibility and diagnostics
 
-- [Pinned source review of Windows Face Unlock](docs/windows-face-unlock-review.md), including its enrollment/ArcFace/MiniFASNet flow, scheduled-task lifecycle, pipe trust boundary and updater limitations.
+- Reviewed Windows Face Unlock's enrollment/ArcFace/MiniFASNet flow, scheduled-task lifecycle, pipe trust boundary and updater limitations; the detailed research report is local-only.
 - Serial startup fallback: negotiated DirectShow → default DirectShow → default Media Foundation, with actual-frame validation, release-before-reopen and one shared deadline. No streaming reconnect, parallel owners or blink-rule change.
 - Backend/first-frame timing in Activity; explicit JSON export adds allowlisted runtime/camera metadata, without images/vectors, credentials, identifiers or raw diagnostic exceptions. Old-generation camera errors cannot cancel a newer session.
 - No new recognition dependencies, automatic locking, upstream code copying or blink-rule changes. The user-authorized local source update `ac7ce8b` was subsequently installed with existing enrollment/links retained; the published v0.8.1 ZIP remains unchanged.
-- Validation: 135 Python tests, native smoke with 63 raster/resource cases and diagnostic/stale-event assertions, provider lifecycle tests, 59 service/protocol checks, 11 deployment checks and 25 packaged shared-runtime checks. Physical fallback/multi-camera mapping remain unverified. [Evidence](docs/testing.md#unreleased-camera-compatibility-and-diagnostics).
+- Validation: 135 Python tests, native smoke with 63 raster/resource cases and diagnostic/stale-event assertions, provider lifecycle tests, 59 service/protocol checks, 11 deployment checks and 25 packaged shared-runtime checks. Physical fallback/multi-camera mapping remain unverified.
 
 ## Documentation and repository organization — 2026-11-11
 
@@ -53,7 +59,7 @@ The [0.8.2 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.
 
 The regression reproduced the exception before the fix; **111 Python tests** and **63 native raster/resource cases** passed afterward. Static/animated high-streak and circular UI captures were inspected. The production desktop is **0.8.1.0** and excludes rendering-test helpers. No physical-camera test was performed for this hotfix.
 
-This is desktop-only. Installed sign-in remains **0.8.0**; no reinstall, re-enrollment, or relinking is required for the rendering fix. [Full record](docs/testing.md#081-desktop-unlock-rendering-hotfix).
+This is desktop-only. Installed sign-in remains **0.8.0**; no reinstall, re-enrollment, or relinking is required for the rendering fix.
 
 ## Desktop / sign-in 0.8.0 — 2026-11-11
 
@@ -70,19 +76,19 @@ This is desktop-only. Installed sign-in remains **0.8.0**; no reinstall, re-enro
 
 The authorized administrator upgrade retained the encrypted account link, checked 19 installed file hashes, preserved other provider registrations, and verified x64 registration, automatic LocalSystem startup, and 25 installed-runtime checks. These runtime checks ran as the elevated development user, not LocalSystem. No restart was needed.
 
-Physical circular enrollment, current-build authentication, long sleep/hibernate/Modern Standby, reboot, Microsoft-account, and multi-user behavior remain unverified. Re-enroll and explicitly **Link / update account** for the new circular snapshot. The gesture is not TrueDepth or a measured accuracy gain. [Research and deployment record](docs/enrollment-resume-research.md).
+Physical circular enrollment, current-build authentication, long sleep/hibernate/Modern Standby, reboot, Microsoft-account, and multi-user behavior remain unverified. Re-enroll and explicitly **Link / update account** for the new circular snapshot. The gesture is not TrueDepth or a measured accuracy gain.
 
 ## Desktop / sign-in 0.7.1 — 2026-11-08
 
 - Single-open DirectShow resolution negotiation avoided driver restarts; the local first-frame measurements improved from one **4.489 s** baseline to approximately **1.05 s** on the development camera.
 - Fresh one-use credentials survive Windows' successful-verification tile refresh without extending their original expiry; deselection/teardown still revoke them.
-- Earlier automatic local-account unlock was confirmed without pressing the arrow. This does not validate subsequent sign-in builds. [Historical native evidence](docs/history/native-validation.md).
+- Earlier automatic local-account unlock was confirmed without pressing the arrow. This does not validate subsequent sign-in builds.
 
 ## Earlier native and browser development
 
-- **0.7 native:** asynchronous status/model startup, raw camera recognition, model-only one-shot prewarm, shorter stable holds, and provider automatic-selection/callback improvements. [Measurements](docs/performance.md#earlier-07-improvements).
+- **0.7 native:** asynchronous status/model startup, raw camera recognition, model-only one-shot prewarm, shorter stable holds, and provider automatic-selection/callback improvements.
 - **0.5 browser:** bounded chin-up eye geometry/calibration and pose-local blink references.
 - **0.4 browser:** individual enrollment views, multi-angle matching, small-motion tracking/recovery, and final fresh confirmation.
 - **0.3 browser:** buffered capture, faster detection/eye tracking, relative blink detection, and averaged neutral-calibrated enrollment holds.
 
-The browser versions are historical experiments, not the current native frontend. [Earlier validation](docs/history/browser-validation.md) · [Browser package on `test`](https://github.com/notg0d/viso/blob/test/experiments/browser/README.md).
+The browser versions are historical experiments, not the current native frontend. [Browser package on `test`](https://github.com/notg0d/viso/blob/test/experiments/browser/README.md).

@@ -16,6 +16,7 @@
 | **Source build uses a different camera after fallback** | DirectShow and Media Foundation may order devices differently. Check the preview/backend/index; disconnect unneeded cameras while diagnosing. Physical multi-camera mapping is not verified. |
 | **Enrollment does not capture a direction** | Follow the actual indicated direction with both eyes open, pause briefly, and keep movement small. A cardinal turn cannot fill a diagonal view. Recenter between circles only. |
 | **Eyes not confirmed open / blink missed** | Improve lighting, reduce glasses glare, move closer, and face the camera more directly. Blink both eyes normally after the prompt, then reopen; do not substitute a head turn or wink. Physical-camera behavior remains experimental. |
+| **Recognition fails in a dim room** | Use soft front-facing light, raise screen brightness if it illuminates your face, and avoid a bright window behind you. Do not lower identity/blink thresholds to compensate. Software brightening cannot recover missing eye detail; use password/PIN when lighting is insufficient. |
 | **Profile cannot be opened** | Current-user DPAPI belongs to the Windows user/machine that created it. The unreadable profile is preserved until explicit reset. Resetting removes it; if sign-in is linked, read the [unlink/delete rules](windows-signin.md#update-disable-remove) first. |
 | **Enrollment missing after closing** | `-Ephemeral` is memory-only. Launch without it and enroll again; closing does not save or convert the prior session. |
 
@@ -28,7 +29,7 @@ Desktop **0.8.1** fixes an `IndexOutOfRangeException` in `EnrollmentRing.OnRende
 .\scripts\start.ps1
 ```
 
-The fix bounds visual progress, not authentication evidence. It needs no re-enrollment, account-link change, or sign-in reinstall. [Hotfix regression evidence](testing.md#081-desktop-unlock-rendering-hotfix).
+The fix bounds visual progress, not authentication evidence. It needs no re-enrollment, account-link change, or sign-in reinstall.
 
 ## Windows sign-in
 
@@ -42,6 +43,7 @@ The fix bounds visual progress, not authentication evidence. It needs no re-enro
 | **Microsoft-account password rejected** | Sign into Windows once with the current account password to refresh its cached credentials. Password sign-in must be available; work/school and domain accounts are outside this prototype. |
 | **Enrollment, password, or camera changes not reflected** | The installed service retains a snapshot. Choose **Link / update account** again; desktop changes do not silently replace it. |
 | **Updated desktop but old sign-in behavior** | `%ProgramFiles%\Viso` contains a separate provider/service/private runtime. Follow the [retained-link upgrade procedure](windows-signin.md#update-disable-remove). The desktop 0.8.1 rendering fix alone does not require it. |
+| **“Starting Viso” pauses before the camera starts** | This covers pipe connection and Python/model initialization, not just Windows service startup. The unreleased source fix keeps the boot-only model cache for five minutes and avoids competing background model loads. It must be deployed to the separate sign-in service; cold loading after cache expiry and camera startup still take time. |
 | **Scan does not start behind lock-screen wallpaper** | Scanning begins when Windows selects the credential tile on the sign-in screen. Windows chooses providers according to its remembered preference and policy. |
 | **A failed scan does not retry** | By design: use the arrow or reselect the tile. Viso avoids an automatic camera/retry loop. |
 | **Wake behavior inconsistent** | The selected-tile wake path has synthetic regression coverage; long sleep, hibernate, and Modern Standby need physical validation. Sign in normally and record the scenario. |

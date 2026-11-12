@@ -33,7 +33,7 @@ Requirements: x64 Windows 10/11, .NET Framework 4.8, the Python dependencies/mod
 .\scripts\build-signin.ps1
 ```
 
-Automated build/runtime checks and fixtures are maintained on `test`; see [validation commands and coverage](testing.md#windows-sign-in-validation).
+Automated build/runtime checks and fixtures are maintained on `test`; see [validation commands](development.md#validate-changes).
 
 Then, from **64-bit administrator PowerShell** in this project:
 
@@ -52,7 +52,7 @@ The installer creates protected directories atomically. Retained `%ProgramData%\
 3. Use **Refresh status** to confirm the account is linked. Password fields clear after a link attempt, when leaving Settings, on minimize/session lock, and on close.
 4. Lock Windows. Choose **Sign-in options → Viso Face**. Selection starts the scan automatically. Look ahead with eyes open, blink after the displayed prompt, and reopen both eyes. After a failure, select the arrow to retry or switch sign-in options.
 
-The service preloads models in one unused, Job-contained Python worker at startup, session lock, interactive resume and after each scan. This standby worker receives no profile and opens no camera. It expires after **60 seconds** unused or immediately on failed initialization/suspend/service disposal. A scan consumes it once and destroys it on success, error, cancellation, or timeout; no profile, eye calibration, or camera frame carries into the next worker. An expired standby means the next attempt loads models cold. Only one scan can hold the camera at a time. The desktop stops its camera on session lock and power changes. The sign-in match threshold is fixed at **0.55**; the desktop threshold slider affects simulator tests only. Recognition attempts expire after 20 seconds, with an outer 45-second worker deadline covering initialization and IPC. The provider accepts a released credential once, for at most 10 seconds.
+The service preloads models in one unused, Job-contained Python worker at startup, session lock, interactive resume and after each scan. This standby worker receives no profile and opens no camera. The unreleased startup fix allows the initial service-start cache **five minutes**; later locks/retries keep the **60-second** lease. Duplicate notifications do not renew the lease, and no competing background prewarm starts while a worker is active. Failed initialization/suspend/service disposal retires it immediately. A scan consumes it once and destroys it on success, error, cancellation, or timeout; no profile, eye calibration, or camera frame carries into the next worker. An expired standby means the next attempt loads models cold. Only one scan can hold the camera at a time. The desktop stops its camera on session lock and power changes. The sign-in match threshold is fixed at **0.55**; the desktop threshold slider affects simulator tests only. Recognition attempts expire after 20 seconds, with an outer 45-second worker deadline covering initialization and IPC. The provider accepts a released credential once, for at most 10 seconds.
 
 ### Default selection and automatic scanning
 
@@ -107,4 +107,4 @@ For callback/automatic-submit troubleshooting, administrator PowerShell can set 
 - The bounded UTF-8 pipe protocol accepts no client image frames or claimed biometric success. The private worker receives profile/camera data, never the account password. Python runs with `-I -B` and a restricted executable search path; a kill-on-close Job Object contains it.
 - Passwords are not logged or exported. Byte buffers and native password strings are cleared after use; .NET's immutable strings mean guaranteed immediate erasure of every managed-memory copy is not claimed.
 
-This remains an experimental RGB-camera implementation. Blink checks have functional coverage but do not establish replay/generated-video resistance or Windows Hello certification. See [the remaining integrated tests](testing.md#windows-sign-in-validation).
+This remains an experimental RGB-camera implementation. Blink checks have functional coverage but do not establish replay/generated-video resistance or Windows Hello certification. Physical authentication, reboot, long sleep and multi-user validation are still required.
