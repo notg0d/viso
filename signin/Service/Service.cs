@@ -155,10 +155,13 @@ namespace Viso.SignIn
         }
         public async Task<Dictionary<string, object>> Next()
         {
-            // Report cold initialization immediately, without competing with the
-            // single stdout reader used by Initialize or inventing a blink prompt.
+            // Report cold initialization immediately. A selected request can
+            // now prepare its camera alongside models; idle standby cannot.
+            // Do not compete with Initialize's reader or invent a blink prompt.
             if (!initialized.IsCompleted && Interlocked.Exchange(ref loadingNoticeSent, 1) == 0)
-                return new Dictionary<string, object> { { "event", "status" }, { "message", "Loading recognition models. The camera is off." } };
+                return new Dictionary<string, object> { { "event", "status" }, { "message", SessionId >= 0
+                    ? "Preparing recognition models and camera. Look straight ahead with both eyes open."
+                    : "Loading recognition models. The camera is off." } };
             await initialized.ConfigureAwait(false);
             return await ReadEvent().ConfigureAwait(false);
         }

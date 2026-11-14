@@ -62,7 +62,9 @@ The standby worker receives no profile and opens no camera. It reads each model 
 
 A selected scan consumes the worker once and destroys it after success, error, cancellation or timeout. Profiles, eye calibration and camera frames never carry into a replacement worker. The service prepares a replacement only while sign-in is still needed. Sign-in with Viso, PIN or password releases unused models when no other connected session needs them. Unlock, logon, logoff and disconnect also revoke that session's active verification and result pipe. Suspend and service shutdown release all workers; interactive resume reevaluates Windows state.
 
-If models are not ready, the tile reports model loading immediately and keeps the camera off until preparation finishes. Cold initialization, camera-driver startup and optional exposure calibration still take time; zero-delay startup is not guaranteed. Physical reboot, sleep, hibernate and current-build sign-in latency still need validation. Building the desktop alone does not deploy this separate sign-in update.
+If models are not ready, a selected scan prepares its camera while model preparation continues. The tile reports both stages immediately. Idle standby still opens no camera. Recognition starts only after both stages finish; it discards startup frames before the fresh identity and blink challenge.
+
+Cold initialization, camera-driver startup and optional exposure calibration still take time. These stages can overlap, but zero-delay startup is not guaranteed. Physical reboot, sleep, hibernate and current-build sign-in latency still need validation. Building the desktop alone does not deploy this separate sign-in update.
 
 ### Lighting feedback and optional exposure assistance (0.8.3)
 

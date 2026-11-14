@@ -9,6 +9,7 @@ The [0.8.2 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.
 - Replace five-minute startup and 60-second standby leases with Windows-state-based model retention. Release unused models after sign-in when no other connected session needs them, and release all workers on suspend or shutdown.
 - Read each model once, verify those bytes, and initialize native inference on blank inputs during preloading. The camera stays off until a selected scan; profiles and blink evidence never cross attempts.
 - Report cold model initialization immediately. Bound preparation to 30 seconds and avoid background model loads beside an active worker.
+- Overlap model preparation with camera startup and exposure calibration after a selected verification request. Idle standby keeps the camera off. Recognition waits for both stages and discards startup frames before the fresh challenge.
 - Revoke the affected session's verification worker and result pipe after logon, unlock, logoff or disconnect. Delayed Windows-state queries cannot restore obsolete standby state.
 - Preserve low-light exposure assistance, camera ownership, thresholds, fresh blink requirements, account records and power-generation checks. No dependency or model version changes.
 - Building does not install this update. Physical reboot, sleep, hibernate, camera startup and current-build Windows sign-in latency remain unverified; zero delay is not guaranteed.
