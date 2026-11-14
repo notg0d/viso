@@ -176,6 +176,19 @@ class RecognitionIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(second.embedding, second.message)
         self.assertLess(similarity(first.embedding, second.embedding), DEFAULT_THRESHOLD)
 
+    def test_blank_warmup_preserves_real_identity_and_eye_measurements(self):
+        self.engine.warmup()
+        blank = self.engine.observe(np.zeros((480, 640, 3), dtype=np.uint8))
+        self.assertEqual(blank.face_count, 0)
+        self.assertIsNone(blank.embedding)
+        for name, previous in self.observations.items():
+            with self.subTest(name=name):
+                current = self.engine.observe(decode_image(self.images[name]))
+                self.assertEqual(current.face_count, previous.face_count)
+                np.testing.assert_allclose(current.embedding, previous.embedding, rtol=1e-5, atol=1e-6)
+                self.assertEqual(current.attention.eyes, previous.attention.eyes)
+                self.assertEqual(current.lighting, previous.lighting)
+
     def test_moving_portrait_views_match_while_other_identity_stays_below_threshold(self):
         first, second = self.observations["obama.jpg"], self.observations["obama2.jpg"]
         enrolled = {"embedding": normalized(first.embedding + second.embedding).tolist(),

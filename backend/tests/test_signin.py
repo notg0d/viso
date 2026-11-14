@@ -1,9 +1,10 @@
 import copy
+import json
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from backend.viso.recognition import MODEL_ID
-from backend.viso.signin import validate_profile, verify
+from backend.viso.signin import main, validate_profile, verify
 
 
 def profile():
@@ -13,6 +14,27 @@ def profile():
 
 
 class SignInTests(unittest.TestCase):
+    def test_prewarm_finishes_before_readiness_or_profile_and_never_opens_camera(self):
+        events = []
+        engine = Mock()
+        engine.warmup.side_effect = lambda: events.append("warmup")
+        def request(*args):
+            events.append("profile")
+            return json.dumps({"command": "validate", "profile": profile()}) + "\n"
+        with patch("backend.viso.signin.sys.argv", ["signin.py", "--prewarm"]), \
+                patch("backend.viso.signin.sys.stdin") as stdin, \
+                patch("backend.viso.signin.sys.stdout"), \
+                patch("backend.viso.signin.FaceEngine", return_value=engine), \
+                patch("backend.viso.signin.Camera") as camera, \
+                patch("backend.viso.signin.ProfileStore") as store, \
+                patch("builtins.print", side_effect=lambda line, **kwargs: events.append(json.loads(line))):
+            stdin.readline.side_effect = request
+            main()
+        self.assertEqual(events, ["warmup", {"event": "ready"}, "profile", {"event": "validated"}])
+        camera.assert_not_called()
+        store.assert_not_called()
+        engine.close.assert_called_once_with()
+
     def test_only_current_completed_normalized_camera_profiles(self):
         valid = profile()
         self.assertIs(validate_profile(valid), valid)

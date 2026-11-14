@@ -24,7 +24,7 @@ namespace Viso.SignIn
         {
             try {
                 var test = args.Length == 2 && args[0] == "--runtime" ? TestRuntime(args[1]) : Run();
-                if (!test.Wait(TimeSpan.FromSeconds(45))) throw new Exception("Service tests timed out.");
+                if (!test.Wait(TimeSpan.FromSeconds(args.Length == 2 && args[0] == "--runtime" ? 120 : 45))) throw new Exception("Service tests timed out.");
                 test.GetAwaiter().GetResult(); Console.WriteLine("Service checks passed: " + checks + "."); return 0;
             }
             catch (Exception error) { Console.Error.WriteLine(error); return 1; }
@@ -127,6 +127,13 @@ namespace Viso.SignIn
             Reject(delegate { failed.GetAwaiter().GetResult(); });
             var success = SignInService.CompleteWorker(Task.FromResult(0), Task.FromResult(0), 10000);
             await success; Check(success.IsCompleted && !success.IsFaulted);
+            Console.WriteLine("Checking model readiness validation and initialization deadline...");
+            await Worker.AwaitInitialization(Task.FromResult(new Dictionary<string, object> { { "event", "ready" } }), 1000); Check(true);
+            Reject(delegate { Worker.AwaitInitialization(Task.FromResult(new Dictionary<string, object> { { "event", "accepted" } }), 1000).GetAwaiter().GetResult(); });
+            var silent = new TaskCompletionSource<Dictionary<string, object>>();
+            var initialization = Worker.AwaitInitialization(silent.Task, 20);
+            Check(await Task.WhenAny(initialization, Task.Delay(2000)) == initialization);
+            Check(initialization.IsFaulted && initialization.Exception.InnerException is System.TimeoutException);
             Console.WriteLine("Checking suspend revocation and idempotent service disposal...");
             using (var service = new SignInService()) {
                 Check(service.CanHandlePowerEvent && service.CanHandleSessionChangeEvent);
@@ -144,7 +151,7 @@ namespace Viso.SignIn
                     Check(!Field<bool>(service, "suspended") && Field<Worker>(service, "standby") == null);
                     Reject(delegate { service.RequirePowerGeneration(generation); });
                     var staleWorker = (Task)typeof(SignInService).GetMethod("WithWorker", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(service, new object[] {
-                        new Account { Profile = "{}" }, "verify", new Func<Worker, Task>(delegate { throw new Exception("Stale request acquired a worker."); }), generation
+                        new Account { Profile = "{}" }, "verify", new Func<Worker, Task>(delegate { throw new Exception("Stale request acquired a worker."); }), generation, -1, 0
                     });
                     Reject(delegate { staleWorker.GetAwaiter().GetResult(); });
                     Check(Field<HashSet<Worker>>(service, "workers").Count == 0);
@@ -155,6 +162,54 @@ namespace Viso.SignIn
                     Reject(delegate { service.RequirePowerGeneration(Field<int>(service, "powerGeneration")); });
                 }
             }
+            Console.WriteLine("Checking stale session-state queries and session revocation...");
+            using (var entered = new System.Threading.ManualResetEventSlim())
+            using (var release = new System.Threading.ManualResetEventSlim())
+            using (var service = new SignInService("unused", delegate(int session, bool? awaiting) {
+                if (awaiting == true) { entered.Set(); if (!release.Wait(2000)) throw new Exception("Blocked state query timed out."); }
+                return awaiting == true;
+            })) {
+                typeof(SignInService).GetField("standbyWanted", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(service, true);
+                var oldLock = service.SessionChanged(SessionChangeReason.SessionLock, 1);
+                Check(entered.Wait(2000));
+                Check(!Field<bool>(service, "standbyWanted")); // Do not replace workers from stale state while the query is pending.
+                int generation = service.SessionGeneration(1);
+                await service.SessionChanged(SessionChangeReason.SessionUnlock, 1);
+                release.Set(); await oldLock;
+                Check(!Field<bool>(service, "standbyWanted") && Field<Worker>(service, "standby") == null);
+                Reject(delegate { service.RequireSessionGeneration(1, generation); });
+                service.RequireSessionGeneration(2, 0); Check(true);
+            }
+            // PIN/password sign-in revokes only that session's result transport,
+            // including the interval after its camera worker has already exited.
+            using (var service = new SignInService("unused", delegate { return false; }))
+            using (var first = new NamedPipeServerStream("Viso-Test-" + Guid.NewGuid().ToString("N"), PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
+            using (var other = new NamedPipeServerStream("Viso-Test-" + Guid.NewGuid().ToString("N"), PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous)) {
+                Field<Dictionary<NamedPipeServerStream, int>>(service, "verifyingSessions").Add(first, 1);
+                Field<Dictionary<NamedPipeServerStream, int>>(service, "verifyingSessions").Add(other, 2);
+                var waiting = first.WaitForConnectionAsync();
+                var otherWaiting = other.WaitForConnectionAsync();
+                await service.SessionChanged(SessionChangeReason.SessionUnlock, 1);
+                Check(await Task.WhenAny(waiting, Task.Delay(2000)) == waiting);
+                Reject(delegate { waiting.GetAwaiter().GetResult(); });
+                Check(!otherWaiting.IsCompleted);
+                other.Dispose(); SignInService.ObserveFailure(otherWaiting);
+            }
+            Console.WriteLine("Checking console and multi-session model retention...");
+            var sessions = new[] { new SessionState.Session { Id = 0, State = 0 }, new SessionState.Session { Id = 1, State = 0 }, new SessionState.Session { Id = 2, State = 4 } };
+            Check(!SessionState.NeedsModels(1, sessions, -1, null, id => id == 2)); // Disconnected user is ignored.
+            Check(SessionState.NeedsModels(1, sessions, 1, true, id => false)); // Lock notification wins over a lagging query.
+            Check(!SessionState.NeedsModels(1, sessions, 1, false, id => true)); // Unlock notification wins too.
+            sessions[2].State = 1;
+            Check(SessionState.NeedsModels(1, sessions, 1, false, id => id == 2)); // Another connected locked user.
+            Check(!SessionState.NeedsModels(1, sessions, 2, false, id => false));
+            Check(SessionState.NeedsModels(uint.MaxValue, new SessionState.Session[0], -1, null, id => false)); // Console transition.
+            Check(SessionState.NeedsModels(1, sessions, -1, null, id => true)); // Locked or unknown state.
+            // The real WTS query inspects state only. It does not open a camera,
+            // access the account vault, or trigger workstation lock/unlock.
+            bool stateNeedsModels = SessionState.NeedsModels(-1, null);
+            Console.WriteLine("Current Windows state needs model standby: " + stateNeedsModels + ".");
+            Check(true);
         }
         private static async Task TestRelay(bool disconnect)
         {
@@ -197,10 +252,18 @@ namespace Viso.SignIn
             }
             using (var worker = new Worker(root, true)) {
                 // Model warmup completes without a profile or a camera request.
+                var noticeTimer = Stopwatch.StartNew();
+                var notice = await worker.Next();
+                Check(Convert.ToString(notice["event"]) == "status" && Convert.ToString(notice["message"]).Contains("camera is off"));
+                Check(noticeTimer.ElapsedMilliseconds < 1000 && !worker.Ready.IsCompleted);
+                Console.WriteLine("Cold initialization status: " + noticeTimer.ElapsedMilliseconds + " ms.");
                 await worker.Ready;
                 Check(worker.IsAlive);
+                Console.WriteLine("Cold model preparation: " + worker.StartupMilliseconds + " ms (no camera).");
+                var warmRequest = Stopwatch.StartNew();
                 worker.Start(account, "validate");
                 Check(Convert.ToString((await worker.Next())["event"]) == "validated");
+                Console.WriteLine("Warm worker validation request: " + warmRequest.ElapsedMilliseconds + " ms (no camera).");
                 using (var process = Process.GetProcessById(worker.ProcessId)) Check(process.WaitForExit(3000));
             }
             account.Profile = "{}";
@@ -229,51 +292,42 @@ namespace Viso.SignIn
             using (var worker = new Worker(root)) {
                 worker.Start(account, "validate"); Check(Convert.ToString((await worker.Next())["event"]) == "error");
             }
-            Console.WriteLine("Checking standby leases, stale timer callbacks and suspend job cleanup...");
-            using (var service = new SignInService(root, 60000)) {
-                Invoke(service, "PrepareBootWorker"); var prepared = Field<Worker>(service, "standby"); Check(prepared != null);
-                long deadline = Field<long>(service, "standbyDeadline");
-                double remaining = (deadline - Stopwatch.GetTimestamp()) * 1000.0 / Stopwatch.Frequency;
-                Check(remaining > 240000 && remaining <= SignInService.BootStandbyLeaseMilliseconds);
-                Invoke(service, "PrepareWorker"); Invoke(service, "PrepareBootWorker");
-                Check(Field<Worker>(service, "standby") == prepared && Field<HashSet<Worker>>(service, "workers").Count == 1);
-                Check(Field<long>(service, "standbyDeadline") == deadline); // Notifications cannot renew it forever.
+            Console.WriteLine("Checking Windows-state retention, alternative sign-in and suspend cleanup...");
+            bool wanted = true;
+            using (var service = new SignInService(root, delegate { return wanted; })) {
+                await service.RefreshSessionState(); var prepared = Field<Worker>(service, "standby"); Check(prepared != null);
                 await prepared.Ready;
+                await service.SessionChanged(SessionChangeReason.SessionLock, 1);
+                await service.RefreshSessionState();
+                Check(Field<Worker>(service, "standby") == prepared && prepared.IsAlive && Field<HashSet<Worker>>(service, "workers").Count == 1);
+                Check(typeof(SignInService).GetField("standbyExpiry", BindingFlags.Instance | BindingFlags.NonPublic) == null);
                 using (var process = Process.GetProcessById(prepared.ProcessId)) {
-                    typeof(SignInService).GetField("standbyDeadline", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(service, Stopwatch.GetTimestamp() - 1);
-                    Invoke(service, "RetireStandby"); Check(process.WaitForExit(3000));
-                    Check(Field<Worker>(service, "standby") == null && Field<HashSet<Worker>>(service, "workers").Count == 0);
+                    Console.WriteLine("Model-only standby: " + process.PrivateMemorySize64 + " private bytes; retained while sign-in is needed.");
+                    wanted = false; await service.SessionChanged(SessionChangeReason.SessionUnlock, 1);
+                    Check(process.WaitForExit(3000) && Field<Worker>(service, "standby") == null);
                 }
-            }
-            using (var service = new SignInService(root, 60000)) {
-                Invoke(service, "PrepareWorker"); var prepared = Field<Worker>(service, "standby"); Check(prepared != null);
-                await prepared.Ready;
-                using (var process = Process.GetProcessById(prepared.ProcessId)) {
-                    Console.WriteLine("Model-only standby footprint: " + process.PrivateMemorySize64 + " private bytes; " + process.WorkingSet64 + " working-set bytes. Unused residency is now leased, not permanent.");
-                }
-                Invoke(service, "RetireStandby"); // Simulates an old queued callback before the new lease expires.
-                Check(Field<Worker>(service, "standby") == prepared && prepared.IsAlive);
-                typeof(SignInService).GetField("standbyDeadline", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(service, Stopwatch.GetTimestamp() - 1);
-                using (var process = Process.GetProcessById(prepared.ProcessId)) {
-                    Invoke(service, "RetireStandby"); Check(process.WaitForExit(3000));
-                    Check(Field<Worker>(service, "standby") == null && Field<HashSet<Worker>>(service, "workers").Count == 0);
-                }
-                Invoke(service, "PrepareWorker"); prepared = Field<Worker>(service, "standby"); await prepared.Ready;
+                Invoke(service, "PrepareWorker"); Check(Field<Worker>(service, "standby") == null);
+                wanted = true; await service.SessionChanged(SessionChangeReason.SessionLogoff, 1);
+                prepared = Field<Worker>(service, "standby"); await prepared.Ready;
                 using (var process = Process.GetProcessById(prepared.ProcessId)) {
                     service.PowerChanged(PowerBroadcastStatus.Suspend); Check(process.WaitForExit(3000));
                     Check(Field<Worker>(service, "standby") == null && Field<HashSet<Worker>>(service, "workers").Count == 0);
                 }
                 service.PowerChanged(PowerBroadcastStatus.ResumeAutomatic); Check(Field<Worker>(service, "standby") == null);
-            }
-            using (var service = new SignInService(root, 80)) {
-                Invoke(service, "PrepareWorker"); var prepared = Field<Worker>(service, "standby"); Check(prepared != null);
+                service.PowerChanged(PowerBroadcastStatus.ResumeSuspend);
+                await WaitForStandby(service); prepared = Field<Worker>(service, "standby"); await prepared.Ready;
+                // An unlock of another user must retain the cache if a connected
+                // locked session still needs sign-in (the WTS resolver says true).
+                await service.SessionChanged(SessionChangeReason.SessionUnlock, 2);
+                Check(Field<Worker>(service, "standby") == prepared && prepared.IsAlive);
                 using (var process = Process.GetProcessById(prepared.ProcessId)) {
-                    Check(process.WaitForExit(3000)); await Task.Delay(50);
-                    Check(Field<Worker>(service, "standby") == null && Field<HashSet<Worker>>(service, "workers").Count == 0);
+                    service.Dispose(); service.Dispose(); Check(process.WaitForExit(3000));
+                    await service.RefreshSessionState(); Check(Field<Worker>(service, "standby") == null);
                 }
             }
-            using (var service = new SignInService(root, 60000)) {
-                Invoke(service, "PrepareWorker"); var prepared = Field<Worker>(service, "standby"); await prepared.Ready;
+            wanted = true;
+            using (var service = new SignInService(root, delegate { return wanted; })) {
+                await service.RefreshSessionState(); var prepared = Field<Worker>(service, "standby"); await prepared.Ready;
                 using (var process = Process.GetProcessById(prepared.ProcessId)) {
                     // Invalid profile is rejected before the verify command can
                     // request a camera, while exercising actual standby consumption.
@@ -281,19 +335,34 @@ namespace Viso.SignIn
                         new Account { Profile = "{}" }, "verify", new Func<Worker, Task>(async delegate(Worker worker) {
                             // Reproduce boot/session warmup arriving after a scan
                             // consumes the cache. Never load a competing standby.
-                            Invoke(service, "PrepareWorker"); Invoke(service, "PrepareBootWorker");
+                            Invoke(service, "PrepareWorker"); await service.RefreshSessionState();
                             Check(Field<Worker>(service, "standby") == null && Field<HashSet<Worker>>(service, "workers").Count == 1);
                             Check(worker == prepared && Convert.ToString((await worker.Next())["event"]) == "error");
-                        }), Field<int>(service, "powerGeneration")
+                        }), Field<int>(service, "powerGeneration"), 1, service.SessionGeneration(1)
                     });
                     await consumed; Check(process.WaitForExit(3000));
-                    var deadline = Stopwatch.StartNew();
-                    while (Field<Worker>(service, "standby") == null && deadline.ElapsedMilliseconds < 3000) await Task.Delay(10);
+                    await WaitForStandby(service);
                     var replacement = Field<Worker>(service, "standby");
                     Check(replacement != null && replacement != prepared && Field<HashSet<Worker>>(service, "workers").Count == 1);
-                    double remaining = (Field<long>(service, "standbyDeadline") - Stopwatch.GetTimestamp()) * 1000.0 / Stopwatch.Frequency;
-                    Check(remaining > 50000 && remaining <= 60000); // Retries keep the short lease.
                     await replacement.Ready;
+                }
+                prepared = Field<Worker>(service, "standby");
+                using (var process = Process.GetProcessById(prepared.ProcessId)) {
+                    int previousGeneration = service.SessionGeneration(1);
+                    var canceled = (Task)typeof(SignInService).GetMethod("WithWorker", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(service, new object[] {
+                        new Account { Profile = "{}" }, "verify", new Func<Worker, Task>(async delegate(Worker worker) {
+                            wanted = false;
+                            await service.SessionChanged(SessionChangeReason.SessionUnlock, 1);
+                            Reject(delegate { service.RequireSessionGeneration(1, previousGeneration); });
+                            await worker.Next();
+                        }), Field<int>(service, "powerGeneration"), 1, previousGeneration
+                    });
+                    try { await canceled; throw new Exception("Session unlock did not cancel the worker."); }
+                    catch (OperationCanceledException) { Check(true); }
+                    catch (IOException) { Check(true); }
+                    catch (InvalidOperationException) { Check(true); }
+                    Check(process.WaitForExit(3000));
+                    Invoke(service, "PrepareWorker"); Check(Field<Worker>(service, "standby") == null);
                 }
             }
             // A deliberately failing worker uses a separate temporary payload;
@@ -304,14 +373,20 @@ namespace Viso.SignIn
                 Directory.CreateDirectory(Path.Combine(failedRoot, "backend", "viso"));
                 foreach (string file in Directory.GetFiles(Path.Combine(root, "runtime"))) File.Copy(file, Path.Combine(failedRoot, "runtime", Path.GetFileName(file)));
                 File.WriteAllText(Path.Combine(failedRoot, "backend", "viso", "signin.py"), "print('{\"event\":\"error\",\"message\":\"synthetic initialization failure\"}', flush=True)\n");
-                using (var service = new SignInService(failedRoot, 60000)) {
-                    Invoke(service, "PrepareWorker"); var prepared = Field<Worker>(service, "standby"); Check(prepared != null);
+                using (var service = new SignInService(failedRoot, delegate { return true; })) {
+                    await service.RefreshSessionState(); var prepared = Field<Worker>(service, "standby"); Check(prepared != null);
                     try { await prepared.Ready; throw new Exception("Expected failed warmup."); } catch (IOException) { Check(true); }
                     var deadline = Stopwatch.StartNew();
                     while (Field<Worker>(service, "standby") != null && deadline.ElapsedMilliseconds < 2000) await Task.Delay(10);
                     Check(Field<Worker>(service, "standby") == null && Field<HashSet<Worker>>(service, "workers").Count == 0 && !prepared.IsAlive);
                 }
             } finally { Directory.Delete(failedRoot, true); }
+        }
+        private static async Task WaitForStandby(SignInService service)
+        {
+            var deadline = Stopwatch.StartNew();
+            while (Field<Worker>(service, "standby") == null && deadline.ElapsedMilliseconds < 3000) await Task.Delay(10);
+            Check(Field<Worker>(service, "standby") != null);
         }
     }
 }
