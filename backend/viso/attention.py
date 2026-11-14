@@ -143,13 +143,13 @@ def head_angles(matrix: np.ndarray) -> tuple[float, float, float]:
 
 
 class AttentionEngine:
-    def __init__(self, model_dir: Path):
+    def __init__(self, model_dir: Path, model_buffer: bytes | None = None):
         # Profile validation and non-camera commands do not need MediaPipe.
         import mediapipe as mp
         self.mp = mp
         self.landmarker = mp.tasks.vision.FaceLandmarker.create_from_options(
             mp.tasks.vision.FaceLandmarkerOptions(
-                base_options=mp.tasks.BaseOptions(model_asset_buffer=(model_dir / "face_landmarker.task").read_bytes()),
+                base_options=mp.tasks.BaseOptions(model_asset_buffer=model_buffer if model_buffer is not None else (model_dir / "face_landmarker.task").read_bytes()),
                 running_mode=mp.tasks.vision.RunningMode.IMAGE,
                 num_faces=2,
                 min_face_detection_confidence=.65,
@@ -158,6 +158,11 @@ class AttentionEngine:
                 output_facial_transformation_matrixes=True,
             )
         )
+
+    def warmup(self):
+        # IMAGE mode has no temporal tracking; no eye references are created here.
+        self.landmarker.detect(self.mp.Image(image_format=self.mp.ImageFormat.SRGB,
+                                             data=np.zeros((320, 320, 3), dtype=np.uint8)))
 
     def close(self):
         self.landmarker.close()
