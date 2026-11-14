@@ -266,6 +266,18 @@ namespace Viso.SignIn
                 Console.WriteLine("Warm worker validation request: " + warmRequest.ElapsedMilliseconds + " ms (no camera).");
                 using (var process = Process.GetProcessById(worker.ProcessId)) Check(process.WaitForExit(3000));
             }
+            using (var worker = new Worker(root, true)) {
+                // Selection changes only the preparation message. This synthetic
+                // validation request still cannot acquire a physical camera.
+                worker.SessionId = 1;
+                var noticeTimer = Stopwatch.StartNew();
+                var notice = await worker.Next();
+                Check(Convert.ToString(notice["event"]) == "status" && Convert.ToString(notice["message"]).Contains("models and camera"));
+                Check(!Convert.ToString(notice["message"]).Contains("camera is off") && noticeTimer.ElapsedMilliseconds < 1000);
+                worker.Start(account, "validate");
+                Check(Convert.ToString((await worker.Next())["event"]) == "validated");
+                Check(worker.Ready.IsCompleted && !worker.Ready.IsFaulted);
+            }
             account.Profile = "{}";
             using (var worker = new Worker(root)) {
                 worker.Start(account, "validate");

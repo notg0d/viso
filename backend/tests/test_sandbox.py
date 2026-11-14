@@ -189,6 +189,31 @@ class RecognitionIntegrationTests(unittest.TestCase):
                 self.assertEqual(current.attention.eyes, previous.attention.eyes)
                 self.assertEqual(current.lighting, previous.lighting)
 
+    def test_background_model_preparation_preserves_main_thread_recognition(self):
+        from concurrent.futures import ThreadPoolExecutor
+        def prepare():
+            engine = FaceEngine(ROOT / "models")
+            try:
+                engine.warmup()
+                return engine
+            except Exception:
+                engine.close()
+                raise
+        with ThreadPoolExecutor(max_workers=1) as preparation:
+            engine = preparation.submit(prepare).result(timeout=30)
+        try:
+            blank = engine.observe(np.zeros((480, 640, 3), dtype=np.uint8))
+            self.assertEqual(blank.face_count, 0)
+            self.assertIsNone(blank.embedding)
+            for name, previous in self.observations.items():
+                with self.subTest(name=name):
+                    current = engine.observe(decode_image(self.images[name]))
+                    np.testing.assert_allclose(current.embedding, previous.embedding, rtol=1e-5, atol=1e-6)
+                    self.assertEqual(current.attention.public(), previous.attention.public())
+                    self.assertEqual(current.lighting, previous.lighting)
+        finally:
+            engine.close()
+
     def test_moving_portrait_views_match_while_other_identity_stays_below_threshold(self):
         first, second = self.observations["obama.jpg"], self.observations["obama2.jpg"]
         enrolled = {"embedding": normalized(first.embedding + second.embedding).tolist(),

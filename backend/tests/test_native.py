@@ -90,6 +90,19 @@ class NativeHostTests(unittest.TestCase):
         with self.assertRaises(ApiError):
             self.host.handle("attempt.tick", {})
 
+    def test_new_attempt_discards_overlapped_camera_startup_frames(self):
+        self.camera.samples = [(99.9, "startup-open"), (100.01, "startup-blink")]
+        result = self.start()
+        self.assertFalse(self.camera.samples)
+        self.assertEqual(self.host.capture_after, 100)
+        attempt = self.service.attempts[result["attempt"]["id"]]
+        self.assertEqual(attempt.public()["state"], "scanning")
+        self.assertEqual(attempt.public()["phase"], "identity")
+        self.assertFalse(self.host.awaiting_prompt)
+        with patch("backend.viso.native.monotonic", return_value=100.1), patch.object(self.service, "observe") as observe:
+            self.host.handle("attempt.tick", {})
+            observe.assert_not_called()
+
     def test_exposure_rollback_revokes_prompt_and_inflight_confirmation(self):
         for during_inference in (False, True):
             with self.subTest(during_inference=during_inference):

@@ -1,5 +1,6 @@
 import copy
 import json
+import threading
 import unittest
 from unittest.mock import Mock, patch
 
@@ -14,7 +15,7 @@ def profile():
 
 
 class SignInTests(unittest.TestCase):
-    def test_prewarm_finishes_before_readiness_or_profile_and_never_opens_camera(self):
+    def test_prewarm_finishes_before_readiness_and_validation_and_never_opens_camera(self):
         events = []
         engine = Mock()
         engine.warmup.side_effect = lambda: events.append("warmup")
@@ -30,10 +31,139 @@ class SignInTests(unittest.TestCase):
                 patch("builtins.print", side_effect=lambda line, **kwargs: events.append(json.loads(line))):
             stdin.readline.side_effect = request
             main()
-        self.assertEqual(events, ["warmup", {"event": "ready"}, "profile", {"event": "validated"}])
+        self.assertLess(events.index("warmup"), events.index({"event": "ready"}))
+        self.assertLess(events.index({"event": "ready"}), events.index({"event": "validated"}))
+        self.assertLess(events.index("profile"), events.index({"event": "validated"}))
         camera.assert_not_called()
         store.assert_not_called()
         engine.close.assert_called_once_with()
+
+    def test_idle_prewarm_reports_ready_while_waiting_for_a_request_with_camera_off(self):
+        ready = threading.Event()
+        engine = Mock()
+        def request(*args):
+            self.assertTrue(ready.wait(2), "Model readiness was blocked by stdin.")
+            camera.assert_not_called()
+            return json.dumps({"command": "validate", "profile": profile()}) + "\n"
+        def printed(line, **kwargs):
+            if json.loads(line)["event"] == "ready":
+                ready.set()
+        with patch("backend.viso.signin.sys.argv", ["signin.py", "--prewarm"]), \
+                patch("backend.viso.signin.sys.stdin") as stdin, \
+                patch("backend.viso.signin.sys.stdout"), \
+                patch("backend.viso.signin.FaceEngine", return_value=engine), \
+                patch("backend.viso.signin.Camera") as camera, \
+                patch("builtins.print", side_effect=printed):
+            stdin.readline.side_effect = request
+            main()
+        engine.warmup.assert_called_once_with()
+        engine.close.assert_called_once_with()
+
+    def test_selected_camera_starts_during_model_warmup_without_early_evidence(self):
+        events = []
+        warming, opening = threading.Event(), threading.Event()
+        engine, camera = Mock(), Mock()
+        camera_start = {"running": True, "lighting": {"state": "low"}, "exposure": "tuned"}
+        def warmup():
+            events.append("warmup.started")
+            warming.set()
+            self.assertTrue(opening.wait(2), "Camera startup waited for model warmup.")
+            events.append("warmup.finished")
+        def start(index, assist):
+            self.assertTrue(warming.wait(2))
+            self.assertEqual((index, assist), (2, True))
+            events.append("camera.started")
+            opening.set()
+            return camera_start
+        def scan(host, emit, acknowledge, start=None):
+            self.assertEqual(start, camera_start)
+            self.assertIn("warmup.finished", events)
+            events.append("scan")
+        engine.warmup.side_effect = warmup
+        camera.start.side_effect = start
+        with patch("backend.viso.signin.sys.argv", ["signin.py", "--prewarm"]), \
+                patch("backend.viso.signin.sys.stdin") as stdin, \
+                patch("backend.viso.signin.sys.stdout"), \
+                patch("backend.viso.signin.FaceEngine", return_value=engine), \
+                patch("backend.viso.signin.Camera", return_value=camera) as make_camera, \
+                patch("backend.viso.signin.ProfileStore") as store, \
+                patch("backend.viso.signin.NativeHost") as host, \
+                patch("backend.viso.signin.verify", side_effect=scan), \
+                patch("builtins.print", side_effect=lambda line, **kwargs: events.append(json.loads(line))):
+            stdin.readline.return_value = json.dumps({"command": "verify", "profile": profile(), "camera": 2, "exposure_assist": True}) + "\n"
+            main()
+        self.assertLess(events.index("camera.started"), events.index("warmup.finished"))
+        self.assertLess(events.index({"event": "ready"}), events.index("scan"))
+        self.assertEqual([event for event in events if isinstance(event, dict)][0], {"event": "ready"})
+        self.assertNotIn({"event": "accepted"}, events)
+        make_camera.assert_called_once()
+        store.assert_called_once()
+        host.return_value.cancel.assert_called_once_with()
+        camera.stop.assert_called_once_with()
+        engine.close.assert_called_once_with()
+
+    def test_invalid_prewarm_request_never_opens_camera_and_closes_models(self):
+        for request in ({"command": "verify", "profile": {}},
+                        {"command": "other", "profile": profile()}):
+            engine = Mock()
+            with self.subTest(request=request), \
+                    patch("backend.viso.signin.sys.argv", ["signin.py", "--prewarm"]), \
+                    patch("backend.viso.signin.sys.stdin") as stdin, \
+                    patch("backend.viso.signin.sys.stdout"), \
+                    patch("backend.viso.signin.FaceEngine", return_value=engine), \
+                    patch("backend.viso.signin.Camera") as camera, \
+                    patch("backend.viso.signin.verify") as scan, \
+                    patch("builtins.print"), self.assertRaises(SystemExit):
+                stdin.readline.return_value = json.dumps(request) + "\n"
+                main()
+            camera.assert_not_called()
+            scan.assert_not_called()
+            engine.close.assert_called_once_with()
+
+    def test_overlapped_startup_failure_closes_camera_and_models_without_a_scan(self):
+        for failure in ("models", "camera"):
+            opening = threading.Event()
+            engine, camera = Mock(), Mock()
+            def warmup():
+                self.assertTrue(opening.wait(2))
+                if failure == "models":
+                    raise RuntimeError("Synthetic model failure")
+            def start(*args):
+                opening.set()
+                if failure == "camera":
+                    raise ValueError("Synthetic camera failure")
+                return {"running": True}
+            engine.warmup.side_effect = warmup
+            camera.start.side_effect = start
+            events = []
+            with self.subTest(failure=failure), \
+                    patch("backend.viso.signin.sys.argv", ["signin.py", "--prewarm"]), \
+                    patch("backend.viso.signin.sys.stdin") as stdin, \
+                    patch("backend.viso.signin.sys.stdout"), \
+                    patch("backend.viso.signin.FaceEngine", return_value=engine), \
+                    patch("backend.viso.signin.Camera", return_value=camera), \
+                    patch("backend.viso.signin.NativeHost") as host, \
+                    patch("backend.viso.signin.verify") as scan, \
+                    patch("builtins.print", side_effect=lambda line, **kwargs: events.append(json.loads(line))), \
+                    self.assertRaises(SystemExit):
+                stdin.readline.return_value = json.dumps({"command": "verify", "profile": profile()}) + "\n"
+                main()
+            host.assert_not_called()
+            scan.assert_not_called()
+            self.assertTrue(any(event["event"] == "error" for event in events))
+            self.assertFalse(any(event["event"] in ("accepted", "prompt") for event in events))
+            self.assertTrue(camera.stop.called)
+            engine.close.assert_called_once_with()
+
+    def test_ready_camera_is_not_reopened_and_still_requires_a_new_attempt(self):
+        host = Mock()
+        host.handle.return_value = {"attempt": {"state": "rejected", "message": "Denied"}}
+        events = []
+        with self.assertRaises(ValueError):
+            verify(host, events.append, lambda: True, start={"running": True, "exposure": "tuned"})
+        self.assertEqual(host.handle.call_args_list[0].args, ("attempt.start", {"threshold": .55}))
+        self.assertNotIn("camera.start", [call.args[0] for call in host.handle.call_args_list])
+        self.assertFalse(any(event["event"] == "accepted" for event in events))
 
     def test_only_current_completed_normalized_camera_profiles(self):
         valid = profile()
