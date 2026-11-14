@@ -96,6 +96,7 @@ def main():
     try:
         if "--prewarm" in sys.argv[1:]:
             engine = FaceEngine(ROOT / "models")
+            engine.warmup()
             emit({"event": "ready"})
         line = sys.stdin.readline(131073)
         if len(line) > 131072:

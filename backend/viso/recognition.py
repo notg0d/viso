@@ -133,25 +133,34 @@ class Observation:
 class FaceEngine:
     def __init__(self, model_dir: Path):
         manifest = json.loads((model_dir / "manifest.json").read_text())
+        payloads = {}
         for model in manifest["models"]:
             path = model_dir / model["file"]
             if not path.exists():
                 raise RuntimeError("Models are missing. Extract the entire Viso release ZIP, or run scripts\\setup.ps1 in a source checkout.")
-            with path.open("rb") as source:
-                if hashlib.file_digest(source, "sha256").hexdigest() != model["sha256"]:
-                    raise RuntimeError(f"Model checksum failed: {path.name}. Extract a verified Viso release ZIP again, or re-run source setup.")
+            payload = path.read_bytes()
+            if hashlib.sha256(payload).hexdigest() != model["sha256"]:
+                raise RuntimeError(f"Model checksum failed: {path.name}. Extract a verified Viso release ZIP again, or re-run source setup.")
+            payloads[model["file"]] = payload
         cv2.setNumThreads(min(os.cpu_count() or 2, 4))
         # OpenCV's filename overload uses narrow Windows paths. Python reads
         # Unicode paths correctly; the buffer overload keeps models in memory.
         empty_config = np.empty(0, dtype=np.uint8)
         self.detector = cv2.FaceDetectorYN.create(
-            "onnx", np.frombuffer((model_dir / "face_detection_yunet_2023mar.onnx").read_bytes(), dtype=np.uint8),
+            "onnx", np.frombuffer(payloads.pop("face_detection_yunet_2023mar.onnx"), dtype=np.uint8),
             empty_config, (320, 320), 0.85, 0.3, 1000
         )
         self.recognizer = cv2.FaceRecognizerSF.create(
-            "onnx", np.frombuffer((model_dir / "face_recognition_sface_2021dec.onnx").read_bytes(), dtype=np.uint8), empty_config
+            "onnx", np.frombuffer(payloads.pop("face_recognition_sface_2021dec.onnx"), dtype=np.uint8), empty_config
         )
-        self.attention = AttentionEngine(model_dir)
+        self.attention = AttentionEngine(model_dir, payloads.pop("face_landmarker.task"))
+
+    def warmup(self):
+        """Initialize native inference on blank inputs, never camera/profile data."""
+        self.detector.setInputSize((320, 320))
+        self.detector.detect(np.zeros((320, 320, 3), dtype=np.uint8))
+        self.recognizer.feature(np.zeros((112, 112, 3), dtype=np.uint8))
+        self.attention.warmup()
 
     def close(self):
         if self.attention is not None:

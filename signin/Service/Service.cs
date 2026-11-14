@@ -92,6 +92,10 @@ namespace Viso.SignIn
         private IntPtr job;
         private int disposed;
         private readonly Task initialized;
+        private readonly Stopwatch startup = Stopwatch.StartNew();
+        private int loadingNoticeSent;
+        internal int SessionId { get; set; }
+        internal long StartupMilliseconds { get; private set; }
         internal int ProcessId { get { return process.Id; } }
         internal Task Ready { get { return initialized; } }
         internal bool IsAlive { get { try { return disposed == 0 && !process.HasExited; } catch { return false; } } }
@@ -103,6 +107,7 @@ namespace Viso.SignIn
         [StructLayout(LayoutKind.Sequential)] private struct Limits { public Basic Basic; public Io Io; public UIntPtr Process, Job, PeakProcess, PeakJob; }
         public Worker(string root, bool prewarm = false)
         {
+            SessionId = -1;
             job = CreateJobObject(IntPtr.Zero, null);
             var limits = new Limits(); limits.Basic.Flags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             if (job == IntPtr.Zero || !SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(typeof(Limits)))) { Dispose(); throw new IOException("Cannot isolate the camera worker."); }
@@ -133,11 +138,27 @@ namespace Viso.SignIn
         }
         private async Task Initialize()
         {
-            var ready = await ReadEvent().ConfigureAwait(false);
-            if (Convert.ToString(ready["event"]) != "ready") throw new IOException("Recognition models could not initialize.");
+            await AwaitInitialization(ReadEvent(), 30000).ConfigureAwait(false);
+            StartupMilliseconds = startup.ElapsedMilliseconds;
+        }
+        internal static async Task AwaitInitialization(Task<Dictionary<string, object>> reading, int milliseconds)
+        {
+            SignInService.ObserveFailure(reading);
+            using (var deadline = new CancellationTokenSource()) {
+                try {
+                    if (await Task.WhenAny(reading, Task.Delay(milliseconds, deadline.Token)).ConfigureAwait(false) != reading)
+                        throw new System.TimeoutException("Recognition models took too long to initialize.");
+                    var ready = await reading.ConfigureAwait(false);
+                    if (Convert.ToString(ready["event"]) != "ready") throw new IOException("Recognition models could not initialize.");
+                } finally { deadline.Cancel(); }
+            }
         }
         public async Task<Dictionary<string, object>> Next()
         {
+            // Report cold initialization immediately, without competing with the
+            // single stdout reader used by Initialize or inventing a blink prompt.
+            if (!initialized.IsCompleted && Interlocked.Exchange(ref loadingNoticeSent, 1) == 0)
+                return new Dictionary<string, object> { { "event", "status" }, { "message", "Loading recognition models. The camera is off." } };
             await initialized.ConfigureAwait(false);
             return await ReadEvent().ConfigureAwait(false);
         }
@@ -158,33 +179,33 @@ namespace Viso.SignIn
 
     internal sealed class SignInService : ServiceBase
     {
-        internal const int BootStandbyLeaseMilliseconds = 300000;
         private readonly string root;
+        private readonly Func<int, bool?, bool> needsModels;
         private readonly Vault vault = new Vault(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Viso", "Accounts"));
         private readonly SemaphoreSlim camera = new SemaphoreSlim(1, 1);
         private readonly HashSet<NamedPipeServerStream> connections = new HashSet<NamedPipeServerStream>();
+        private readonly Dictionary<NamedPipeServerStream, int> verifyingSessions = new Dictionary<NamedPipeServerStream, int>();
         private readonly HashSet<Worker> workers = new HashSet<Worker>();
         private Worker standby;
-        private readonly Timer standbyExpiry;
-        private readonly int standbyLeaseMilliseconds;
-        private long standbyDeadline;
+        private bool standbyWanted;
+        private long stateRevision;
+        private readonly Dictionary<int, int> sessionGenerations = new Dictionary<int, int>();
         private volatile bool stopping;
         private volatile bool suspended;
         private int powerGeneration;
-        public SignInService() : this(AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\'), 60000) { }
-        internal SignInService(string root, int standbyLeaseMilliseconds)
+        public SignInService() : this(AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\'), SessionState.NeedsModels) { }
+        internal SignInService(string root, Func<int, bool?, bool> needsModels)
         {
-            if (standbyLeaseMilliseconds <= 0) throw new ArgumentOutOfRangeException("standbyLeaseMilliseconds");
-            this.root = root; this.standbyLeaseMilliseconds = standbyLeaseMilliseconds;
+            if (needsModels == null) throw new ArgumentNullException("needsModels");
+            this.root = root; this.needsModels = needsModels;
             ServiceName = "VisoSignIn"; CanShutdown = true; CanHandlePowerEvent = true; CanHandleSessionChangeEvent = true;
-            standbyExpiry = new Timer(delegate { RetireStandby(); }, null, Timeout.Infinite, Timeout.Infinite);
         }
         protected override void OnStart(string[] args)
         {
             if (!WindowsIdentity.GetCurrent().IsSystem || !root.Equals(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Viso"), StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Install Viso sign-in into Program Files and run it through Windows Services.");
             for (int i = 0; i < 8; i++) Task.Run((Func<Task>)Listen);
-            ObserveFailure(Task.Run((Action)PrepareBootWorker));
+            ObserveFailure(RefreshSessionState());
         }
         protected override void OnStop()
         {
@@ -194,9 +215,9 @@ namespace Viso.SignIn
                 foreach (var pipe in connections) pipe.Dispose();
             }
             lock (workers) {
-                standbyExpiry.Dispose();
+                standbyWanted = false; stateRevision++;
                 foreach (var worker in workers) worker.Dispose();
-                workers.Clear(); standby = null; standbyDeadline = 0;
+                workers.Clear(); standby = null;
             }
         }
         protected override void Dispose(bool disposing) { if (disposing) OnStop(); base.Dispose(disposing); }
@@ -215,34 +236,76 @@ namespace Viso.SignIn
                 }
                 lock (workers) {
                     if (stopping) return;
-                    standbyExpiry.Change(Timeout.Infinite, Timeout.Infinite);
+                    standbyWanted = false; stateRevision++;
                     foreach (var worker in workers) worker.Dispose();
-                    workers.Clear(); standby = null; standbyDeadline = 0;
+                    workers.Clear(); standby = null;
                 }
             } else if (status == PowerBroadcastStatus.ResumeAutomatic || status == PowerBroadcastStatus.ResumeSuspend || status == PowerBroadcastStatus.ResumeCritical) {
                 suspended = false;
                 // Automatic background wake does not imply a user is present.
-                if (status != PowerBroadcastStatus.ResumeAutomatic && !stopping) ObserveFailure(Task.Run((Action)PrepareWorker));
+                if (status != PowerBroadcastStatus.ResumeAutomatic && !stopping) ObserveFailure(RefreshSessionState());
             }
         }
         protected override void OnSessionChange(SessionChangeDescription change)
         {
-            if (change.Reason == SessionChangeReason.SessionLock && !stopping && !suspended) ObserveFailure(Task.Run((Action)PrepareWorker));
+            ObserveFailure(SessionChanged(change.Reason, change.SessionId));
         }
-        private void RetireStandby()
+        internal Task SessionChanged(SessionChangeReason reason, int session)
         {
-            lock (workers) {
-                if (standby == null) return;
-                // A callback queued for a consumed/retired worker may run after
-                // a replacement has been prepared. Respect the new lease.
-                long remaining = standbyDeadline - Stopwatch.GetTimestamp();
-                if (remaining > 0) {
-                    standbyExpiry.Change((int)Math.Max(1, Math.Ceiling(remaining * 1000.0 / Stopwatch.Frequency)), Timeout.Infinite);
-                    return;
+            if (stopping) return Task.FromResult(0);
+            bool? awaiting = null;
+            if (reason == SessionChangeReason.SessionLock || reason == SessionChangeReason.SessionLogoff) awaiting = true;
+            else if (reason == SessionChangeReason.SessionUnlock || reason == SessionChangeReason.SessionLogon) awaiting = false;
+            if (awaiting == false || reason == SessionChangeReason.SessionLogoff || reason == SessionChangeReason.ConsoleDisconnect || reason == SessionChangeReason.RemoteDisconnect) {
+                lock (connections) {
+                    lock (workers) {
+                        stateRevision++; standbyWanted = false;
+                        int version; sessionGenerations.TryGetValue(session, out version); sessionGenerations[session] = version + 1;
+                        // Signing in with PIN/password must also cancel this session's
+                        // verification. Other connected locked sessions remain usable.
+                        var retired = new List<Worker>();
+                        foreach (var worker in workers) if (worker.SessionId == session) retired.Add(worker);
+                        foreach (var worker in retired) { workers.Remove(worker); worker.Dispose(); }
+                    }
+                    // Revoke the pipe too: recognition may have finished and its
+                    // worker been retired while credential delivery is still pending.
+                    foreach (var verification in verifyingSessions) if (verification.Value == session) verification.Key.Dispose();
                 }
-                var worker = standby; standby = null;
-                standbyDeadline = 0; workers.Remove(worker); worker.Dispose();
             }
+            return RefreshSessionState(session, awaiting);
+        }
+        internal Task RefreshSessionState(int session = -1, bool? awaiting = null)
+        {
+            long revision;
+            lock (workers) {
+                if (stopping || suspended) return Task.FromResult(0);
+                revision = ++stateRevision;
+                // Keep an existing cache until the query resolves, but do not
+                // launch a replacement using the previous session's state.
+                standbyWanted = false;
+            }
+            return Task.Run(delegate {
+                bool wanted;
+                try { wanted = needsModels(session, awaiting); } catch { wanted = true; }
+                lock (workers) {
+                    // A delayed startup/lock query cannot resurrect a cache after
+                    // an unlock, suspend, or a newer session-state notification.
+                    if (stopping || suspended || revision != stateRevision) return;
+                    standbyWanted = wanted;
+                    if (!wanted && standby != null) {
+                        var retired = standby; standby = null; workers.Remove(retired); retired.Dispose();
+                    }
+                }
+                if (wanted) PrepareWorker();
+            });
+        }
+        internal int SessionGeneration(int session)
+        {
+            lock (workers) { int version; return sessionGenerations.TryGetValue(session, out version) ? version : 0; }
+        }
+        internal void RequireSessionGeneration(int session, int generation)
+        {
+            if (SessionGeneration(session) != generation) throw new OperationCanceledException("Windows session changed. Start a new sign-in attempt.");
         }
         internal void RequirePowerGeneration(int generation)
         {
@@ -286,7 +349,18 @@ namespace Viso.SignIn
                     caller.RequireLogonUI();
                     if (request.Length != 4) throw new InvalidDataException();
                     if (!await camera.WaitAsync(0).ConfigureAwait(false)) throw new InvalidOperationException("The camera is already being used by another sign-in attempt.");
-                    try { await Verify(pipe, request, generation).ConfigureAwait(false); } finally { camera.Release(); }
+                    try {
+                        int sessionGeneration;
+                        lock (connections) {
+                            RequirePowerGeneration(generation);
+                            sessionGeneration = SessionGeneration(caller.Session);
+                            verifyingSessions.Add(pipe, caller.Session);
+                        }
+                        await Verify(pipe, request, generation, caller.Session, sessionGeneration).ConfigureAwait(false);
+                    } finally {
+                        lock (connections) verifyingSessions.Remove(pipe);
+                        camera.Release();
+                    }
                     return;
                 }
                 if (caller.System) throw new UnauthorizedAccessException("Link accounts from your signed-in desktop.");
@@ -335,26 +409,32 @@ namespace Viso.SignIn
             } finally { if (request != null) Array.Clear(request, 0, request.Length); }
             if (failure != null) { try { await Wire.Send(pipe, "error", failure).ConfigureAwait(false); } catch { } }
         }
-        private async Task WithWorker(Account account, string command, Func<Worker, Task> action, int generation)
+        private async Task WithWorker(Account account, string command, Func<Worker, Task> action, int generation, int session = -1, int sessionGeneration = 0)
         {
             Worker worker;
             lock (workers) {
                 RequirePowerGeneration(generation);
+                if (session >= 0) RequireSessionGeneration(session, sessionGeneration);
                 worker = command == "verify" ? standby : null;
-                if (command == "verify") { standby = null; standbyDeadline = 0; standbyExpiry.Change(Timeout.Infinite, Timeout.Infinite); }
+                if (command == "verify") standby = null;
                 if (worker != null && (!worker.IsAlive || worker.Ready.IsFaulted)) { workers.Remove(worker); worker.Dispose(); worker = null; }
                 if (worker == null) { worker = new Worker(root, command == "verify"); workers.Add(worker); }
+                worker.SessionId = session;
             }
             try {
                 // Begin the disconnect watcher before a potentially cold model
                 // load. Writing a profile must also be inside the deadline: a
                 // prewarming child may not yet be draining stdin.
                 var task = action(worker);
-                var start = Task.Run(delegate { RequirePowerGeneration(generation); worker.Start(account, command); });
+                var start = Task.Run(delegate {
+                    RequirePowerGeneration(generation);
+                    if (session >= 0) RequireSessionGeneration(session, sessionGeneration);
+                    worker.Start(account, command);
+                });
                 await CompleteWorker(start, task, command == "verify" ? 45000 : 20000).ConfigureAwait(false);
             } finally {
                 lock (workers) { if (workers.Remove(worker)) worker.Dispose(); }
-                if (command == "verify" && !stopping && !suspended && generation == Volatile.Read(ref powerGeneration)) ObserveFailure(Task.Run((Action)PrepareWorker));
+                if (!stopping && !suspended && generation == Volatile.Read(ref powerGeneration)) ObserveFailure(Task.Run((Action)PrepareWorker));
             }
         }
         internal static async Task CompleteWorker(Task start, Task action, int milliseconds)
@@ -376,17 +456,6 @@ namespace Viso.SignIn
         }
         private void PrepareWorker()
         {
-            PrepareWorkerFor(standbyLeaseMilliseconds);
-        }
-        private void PrepareBootWorker()
-        {
-            // First logon can follow device startup/updates or a user pausing at
-            // the lock screen. Keep that model-only cache for five minutes, not
-            // indefinitely; later locks/retries retain the ordinary short lease.
-            PrepareWorkerFor(BootStandbyLeaseMilliseconds);
-        }
-        private void PrepareWorkerFor(int leaseMilliseconds)
-        {
             // One unused, model-only process. Every verification consumes and
             // destroys it, so profiles, calibration and frames never cross attempts.
             // Warmup does not acquire the camera or read the account vault.
@@ -395,18 +464,16 @@ namespace Viso.SignIn
                     // Startup, tile selection and session notifications can race.
                     // A consumed standby is still an active worker: do not launch
                     // a second model load beside it and slow the requested scan.
-                    if (stopping || suspended || workers.Count != 0) return;
+                    if (stopping || suspended || !standbyWanted || workers.Count != 0) return;
                     standby = new Worker(root, true); workers.Add(standby);
                     var prepared = standby;
-                    // An unused model process is a latency cache, not permanent
-                    // residency. Never retain a failed initialization until login.
-                    standbyDeadline = Stopwatch.GetTimestamp() + (long)(Stopwatch.Frequency * (leaseMilliseconds / 1000.0));
-                    standbyExpiry.Change(leaseMilliseconds, Timeout.Infinite);
+                    // Retain models while sign-in is needed, not for a short TTL.
+                    // Initialize still has a deadline; failures are retired.
                     prepared.Ready.ContinueWith(delegate(Task ready) {
                         var ignored = ready.Exception;
                         lock (workers) {
                             if (standby != prepared) return;
-                            standby = null; standbyDeadline = 0; standbyExpiry.Change(Timeout.Infinite, Timeout.Infinite);
+                            standby = null;
                             workers.Remove(prepared); prepared.Dispose();
                         }
                     }, TaskContinuationOptions.OnlyOnFaulted);
@@ -422,7 +489,7 @@ namespace Viso.SignIn
             if (value != "true" && value != "false") throw new ArgumentException("Exposure assistance must be on or off.");
             return value == "true";
         }
-        private static void ObserveFailure(Task task)
+        internal static void ObserveFailure(Task task)
         {
             task.ContinueWith(delegate(Task failed) { var ignored = failed.Exception; }, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
         }
@@ -447,20 +514,23 @@ namespace Viso.SignIn
                 if (kind == "prompt") acknowledge();
             }
         }
-        private async Task Verify(NamedPipeServerStream pipe, string[] request, int generation)
+        private async Task Verify(NamedPipeServerStream pipe, string[] request, int generation, int session, int sessionGeneration)
         {
             RequirePowerGeneration(generation);
+            RequireSessionGeneration(session, sessionGeneration);
             Account account;
             await vault.Gate.WaitAsync().ConfigureAwait(false);
             try { account = vault.Load(request[1]); } finally { vault.Gate.Release(); }
             try {
                 if (!Matches(account, request[1], request[2], request[3])) throw new InvalidOperationException("Open Viso Settings in this Windows account and link Windows sign-in first.");
-                await WithWorker(account, "verify", worker => Relay(pipe, worker.Next, worker.Ack), generation).ConfigureAwait(false);
+                await WithWorker(account, "verify", worker => Relay(pipe, worker.Next, worker.Ack), generation, session, sessionGeneration).ConfigureAwait(false);
                 RequirePowerGeneration(generation);
+                RequireSessionGeneration(session, sessionGeneration);
                 // Re-read after recognition so unlink/relink revokes in-flight attempts.
                 await vault.Gate.WaitAsync().ConfigureAwait(false);
                 try {
                     RequirePowerGeneration(generation);
+                    RequireSessionGeneration(session, sessionGeneration);
                     if (!vault.IsCurrent(account)) throw new UnauthorizedAccessException("Account link changed. Start a new sign-in attempt.");
                     await Wire.Send(pipe, "credential", account.Kind, account.Qualified, account.Password).ConfigureAwait(false);
                 } finally { vault.Gate.Release(); }
