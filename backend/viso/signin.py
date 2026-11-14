@@ -2,11 +2,14 @@
 
 Installed with an isolated Python runtime in an administrator-owned directory.
 Each process handles one profile validation or one fresh camera challenge.
---prewarm loads models before receiving any profile; the camera stays closed.
+--prewarm prepares models without a profile; idle standby keeps the camera closed.
+Selected scans can open the camera alongside the remaining model preparation.
 """
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import sys
+import threading
 from time import sleep
 
 # -I ignores PYTHONPATH and user site packages. Only this installed code root is added.
@@ -45,9 +48,10 @@ def validate_profile(profile):
     return profile
 
 
-def verify(host, emit, acknowledge):
-    start = host.handle("camera.start", {"index": host.signin_camera,
-                                         "exposure_assist": host.signin_exposure_assist})
+def verify(host, emit, acknowledge, start=None):
+    if start is None:
+        start = host.handle("camera.start", {"index": host.signin_camera,
+                                             "exposure_assist": host.signin_exposure_assist})
     lighting = start.get("lighting")
     exposure = start.get("exposure", "off")
     host.handle("attempt.start", {"threshold": .55})
@@ -90,34 +94,64 @@ def verify(host, emit, acknowledge):
 def main():
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
+    output_lock = threading.Lock()
     def emit(message):
-        print(json.dumps(message, allow_nan=False), flush=True)
+        with output_lock:
+            print(json.dumps(message, allow_nan=False), flush=True)
     camera = engine = host = None
+    preparation = models = None
+    def prepare_models():
+        prepared = None
+        try:
+            prepared = FaceEngine(ROOT / "models")
+            prepared.warmup()
+            emit({"event": "ready"})
+            return prepared
+        except Exception as error:
+            if prepared is not None:
+                prepared.close()
+            emit({"event": "error", "message": str(error)})
+            raise
     try:
         if "--prewarm" in sys.argv[1:]:
-            engine = FaceEngine(ROOT / "models")
-            engine.warmup()
-            emit({"event": "ready"})
+            # Drain the service request while blank-input preparation runs. No
+            # profile enters this task, and idle standby never creates a camera.
+            preparation = ThreadPoolExecutor(max_workers=1, thread_name_prefix="viso-models")
+            models = preparation.submit(prepare_models)
         line = sys.stdin.readline(131073)
         if len(line) > 131072:
             raise ValueError("Face profile is too large.")
         request = json.loads(line)
         profile = validate_profile(request["profile"])
         if request.get("command") == "validate":
+            if models is not None:
+                engine = models.result()
             emit({"event": "validated"})
             return
         if request.get("command") != "verify":
             raise ValueError("Unsupported sign-in command.")
-        emit({"event": "status", "message": "Starting camera. Look straight ahead with both eyes open."})
+        # Only the authenticated, selected verify request opens a camera. Its
+        # driver/exposure preparation can overlap the remaining model load.
+        # Keep ready as the first successful prewarm event for the service's
+        # sole initialization reader; never let camera status precede it.
+        if models is None or models.done():
+            if models is not None:
+                engine = models.result()
+            emit({"event": "status", "message": "Starting camera. Look straight ahead with both eyes open."})
+        camera = Camera(lambda event: None, preview=False)
+        start = camera.start(request.get("camera", 0), request.get("exposure_assist", False))
+        if models is not None:
+            engine = models.result()
         if engine is None:
             engine = FaceEngine(ROOT / "models")
         store = ProfileStore(ROOT, ephemeral=True)
         store.profile = profile
-        camera = Camera(lambda event: None, preview=False)
         host = NativeHost(SandboxService(engine, store), camera)
         host.signin_camera = request.get("camera", 0)
         host.signin_exposure_assist = request.get("exposure_assist", False)
-        verify(host, emit, lambda: sys.stdin.readline(128).strip() == "ack")
+        # attempt.start discards startup frames and timestamps the fresh scan.
+        # No startup image or blink can become authentication evidence.
+        verify(host, emit, lambda: sys.stdin.readline(128).strip() == "ack", start=start)
     except Exception as error:
         if camera is not None:
             try:
@@ -127,12 +161,24 @@ def main():
         emit({"event": "error", "message": str(error)})
         sys.exit(1)
     finally:
-        if host is not None:
-            host.cancel()
-        if camera is not None:
-            camera.stop()
-        if engine is not None:
-            engine.close()
+        try:
+            if host is not None:
+                host.cancel()
+            if camera is not None:
+                camera.stop()
+        finally:
+            # Close a successfully prepared engine even if the request or camera
+            # failed before its result was adopted. The service Job still bounds
+            # a blocked native startup and kills all work on cancellation.
+            if preparation is not None:
+                preparation.shutdown(wait=True)
+                if engine is None:
+                    try:
+                        engine = models.result()
+                    except Exception:
+                        pass
+            if engine is not None:
+                engine.close()
 
 
 if __name__ == "__main__":
