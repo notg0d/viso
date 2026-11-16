@@ -92,6 +92,8 @@ From a prepared, clean Windows source checkout:
 
 Output is ignored under `desktop/releases/`, or use `-OutputDirectory PATH`. Existing artifacts are never overwritten. `-AllowDirty` builds a clearly marked **local draft only**; do not publish it. The dependency packager copies the installed dependency closure specified by `requirements.txt`, retaining runtime metadata/licenses, rather than copying unrelated packages, pip, or environment leftovers. Models are copied only from the pinned manifest and verified by loading/inference.
 
+Keep the current local release assets in `desktop/releases/`. Keep each installer with its checksum, provenance and validation files. Before adding a newer version, move older builds into a dated folder under `desktop/release-archive/`. Preserve their filenames and contents. Both folders are ignored by Git; publish binaries as GitHub Release assets, not source commits.
+
 Builds precompile `runtime/Lib` with checked source hashes and relative code filenames. Payload checksums include these caches. Development caches remain excluded. The worker can read packaged caches without writing new ones. Earlier downloads are not modified.
 
 On the [`test` branch](https://github.com/notg0d/viso/tree/test), validate the ZIP outside the repository:
