@@ -25,6 +25,7 @@ Run commands from the repository root in PowerShell. Python scripts use `.venv\S
 | `test.ps1` | Download public portraits, run Python suite, build/smoke native app. | Writes `tests/.fixtures/` and `test-results/native/`; no physical camera. |
 | `download_test_fixtures.py` | Fetch three pinned public example portraits. | Test inputs only, never user enrollment or app distribution. |
 | `benchmark_matcher.py` | Deterministic matcher component comparison. | Writes `test-results/matcher.json`; not biometric accuracy or end-to-end latency. |
+| `benchmark_startup.py --root PATH [--runs N] [--output PATH]` | Measure a fresh packaged model worker and warm synthetic validation. | `test` branch only; 1–20 runs, no camera or account records. Not cold-boot, LocalSystem or physical sign-in timing. |
 | `check-docs.py` | Validate local Markdown links, anchors, and image paths. | Standard-library only; excludes ignored/generated trees; does not fetch external links. |
 | `test-signin-deployment.ps1` | Check ownership/ACL/reparse-point deployment rules. | Temporary synthetic paths; does not install/register components. |
 | `test-signin-runtime.ps1` | Package private runtime and exercise service/worker checks. | Run `build-signin.ps1 -Test` first; temporary payload, no passwords/camera/registration. |

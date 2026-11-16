@@ -7,9 +7,7 @@
 
 Viso includes an x64 V2 Credential Provider and a `VisoSignIn` Windows service. The provider submits a Windows credential after the service matches a face, prompts for a fresh blink, and confirms both eyes reopened. Windows performs the account authentication.
 
-**Status:** the user-authorized source build `ac7ce8b` is installed on the development machine, including bounded camera fallback and diagnostics. All 3,219 installed payload file hashes matched; the encrypted account link and desktop enrollment were retained, non-Viso provider registrations/filters were unchanged, x64 registration/automatic LocalSystem service startup were verified, and 25 installed-runtime checks passed. No restart was needed. This is a local source installation, not a replacement of the public v0.8.1 ZIP. Current-build actual unlock, physical sleep/hibernate/Modern Standby, reboot, Microsoft-account and multi-user validation remain necessary.
-
-The separate **desktop 0.8.1 hotfix** fixes an Unlock test ring-rendering crash. It does not change the installed sign-in binaries/runtime, account links or face enrollment; another administrator reinstall is not needed for this desktop-only fix.
+The [0.8.4 complete installer](installer.md) includes the separate service, provider and private runtime. Updating the desktop alone does not update Windows sign-in. Physical sleep, hibernate, reboot, varied cameras, Microsoft-account and multi-user scenarios require separate validation.
 
 ## Account support
 
@@ -24,7 +22,7 @@ Windows Hello PINs are device-specific credentials and cannot replace the accoun
 
 ## Build and install
 
-The [**v0.8.2 experimental release**](https://github.com/notg0d/viso/releases/tag/v0.8.2) provides a [complete Windows Setup.exe](installer.md) containing the desktop, private Python/models and these sign-in components. End users need no source checkout, Python or C++ build tools. First-time users must still explicitly enroll/link their own account after installation. The **source-based workflow below** remains supported and has additional build prerequisites.
+The [**v0.8.4 experimental release**](https://github.com/notg0d/viso/releases/tag/v0.8.4) provides a [complete Windows Setup.exe](installer.md) containing the desktop, private Python/models and these sign-in components. End users need no source checkout, Python or C++ build tools. First-time users must still explicitly enroll/link their own account after installation. The **source-based workflow below** remains supported and has additional build prerequisites.
 
 Requirements: x64 Windows 10/11, .NET Framework 4.8, the Python dependencies/models installed by `setup.ps1`, Visual Studio x64 C++ Build Tools, and a Windows SDK with Credential Provider headers. Windows on ARM is not supported by this DLL build.
 
@@ -54,17 +52,29 @@ The installer creates protected directories atomically. Retained `%ProgramData%\
 
 Only one scan can hold the camera at a time. The desktop stops its camera on session lock and power changes. The sign-in match threshold is fixed at **0.55**; the desktop threshold slider affects simulator tests only. Recognition attempts expire after 20 seconds. An outer 45-second worker deadline covers initialization and IPC. The provider accepts a released credential once, for at most 10 seconds.
 
-### Model readiness (unreleased)
+### Model readiness (0.8.4)
 
-The source update replaces the five-minute startup cache and 60-second standby lease with Windows-state-based retention. The service keeps one model-only worker while the console or another connected session needs sign-in. Startup, lock, logoff, session changes and interactive resume refresh this decision. Unknown Windows state permits model retention only; it never permits authentication.
+The service keeps one unused model-only worker between sign-ins, including while Windows is unlocked. Lock notifications alone arrive too late to hide cold imports. Model retention never permits authentication. One measured standby used approximately 508 MiB of private memory; memory use varies by system.
 
 The standby worker receives no profile and opens no camera. It reads each model once, verifies those bytes, and initializes native inference with blank inputs before reporting readiness. Initialization has a 30-second deadline. No background model load starts while another worker is active.
 
-A selected scan consumes the worker once and destroys it after success, error, cancellation or timeout. Profiles, eye calibration and camera frames never carry into a replacement worker. The service prepares a replacement only while sign-in is still needed. Sign-in with Viso, PIN or password releases unused models when no other connected session needs them. Unlock, logon, logoff and disconnect also revoke that session's active verification and result pipe. Suspend and service shutdown release all workers; interactive resume reevaluates Windows state.
+A selected scan consumes the worker once and destroys it after success, error, cancellation or timeout. Profiles, eye calibration and camera frames never carry into a replacement worker. The service prepares a replacement when no worker is active, even after sign-in with Viso, PIN or password. Unlock, logon, logoff and disconnect revoke that session's active verification and result pipe.
+
+Suspend preserves only an unused standby that has successfully initialized. It destroys active or loading workers and closes existing pipes. Automatic maintenance wake does not start a replacement. Interactive resume can prepare a replacement; service shutdown destroys every worker. Physical sleep and hibernate behavior still need validation.
+
+New source builds precompile `runtime/Lib` with the packaged interpreter. These caches use checked source hashes and relative filenames. Workers retain `-I -B`: isolated imports can read packaged caches, but do not write new caches. Payload manifests cover the caches. Validation rejects caches outside the runtime, wrong interpreter tags, unchecked hashes and caches without source.
 
 If models are not ready, a selected scan prepares its camera while model preparation continues. The tile reports both stages immediately. Idle standby still opens no camera. Recognition starts only after both stages finish; it discards startup frames before the fresh identity and blink challenge.
 
 Cold initialization, camera-driver startup and optional exposure calibration still take time. These stages can overlap, but zero-delay startup is not guaranteed. Physical reboot, sleep, hibernate and current-build sign-in latency still need validation. Building the desktop alone does not deploy this separate sign-in update.
+
+For model-only startup measurements, run this command from a prepared `test`-branch checkout:
+
+```powershell
+.\.venv\Scripts\python.exe -I -B .\scripts\benchmark_startup.py --root 'C:\Program Files\Viso' --runs 5
+```
+
+The benchmark never opens a camera or reads account records. It measures a fresh worker and a synthetic validation request. It does not measure physical sign-in, cold boot or LocalSystem performance.
 
 ### Lighting feedback and optional exposure assistance (0.8.3)
 
@@ -82,7 +92,7 @@ Viso supplies a default tile for a linked account. Windows gives preference to t
 
 Selection launches background verification; a message-only window delivers status/prompt callbacks on LogonUI's UI thread. Only a fresh accepted result asks Windows to serialize automatically. Failed scans wait for a manual retry rather than repeatedly reopening the camera. Deselection, unadvising, and disconnect cancel pending work. Windows may still impose its own sign-in confirmation in some scenarios.
 
-The same window registers suspend/resume and session-display notifications. Suspend/display-off clears pending scans and accepted credentials. Interactive resume or display return rearms a still-selected tile **once**, even if Windows never calls `SetSelected` again. Automatic maintenance wake alone does not open the camera; repeated wake/display notifications do not loop retries. The service closes pre-suspend pipes/workers and rejects results from older power generations. This is covered by synthetic notification tests, not yet a physical long-sleep guarantee.
+The same window registers suspend/resume and session-display notifications. Suspend/display-off clears pending scans and accepted credentials. Interactive resume or display return rearms a still-selected tile **once**, even if Windows never calls `SetSelected` again. Automatic maintenance wake alone does not open the camera; repeated wake/display notifications do not loop retries. The service closes pre-suspend pipes and active workers, retaining only the unused initialized standby. It rejects results from older power generations. This is covered by synthetic notification tests, not yet a physical long-sleep guarantee.
 
 If recognition, the camera, the service, or a saved password fails, select your ordinary Windows password/PIN option. A failed stored password must be updated in Viso after signing in normally.
 
@@ -92,6 +102,8 @@ If recognition, the camera, the service, or a saved password fails, select your 
 - **Disable one account:** click **Disable face sign-in**. The encrypted service record is deleted; desktop enrollment remains.
 - **Delete desktop enrollment:** persistent-mode deletion first unlinks the current service account. If the installed service is stopped, start it before deleting so an enabled service copy is not left behind. Ephemeral sessions do not alter the persistent link.
 - **Concurrent changes:** unlink/relink invalidates pending link commits and verification against an older record. A credential already released to LogonUI is one-use and expires after 10 seconds; unlink cannot retract a serialization Windows has already received.
+
+For complete-installer upgrades, close Viso and run the verified replacement Setup. It retains account links and desktop enrollment. Uninstalling first is not required; see [installer upgrade and recovery rules](installer.md#storage-upgrades-and-removal).
 
 To remove the Windows components in administrator PowerShell:
 

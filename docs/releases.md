@@ -4,27 +4,27 @@
 
 ## Download and run
 
-**0.8.3 release candidate:** the updated source adds lighting feedback, opt-in exposure assistance and startup reliability fixes. A locally built `Viso-0.8.3-Setup-x64.exe` is not automatically published or installed. Its adjacent `.sha256`, `.exe.json` and `.exe.validation.json` identify that exact build and its unverified gates. The public downloads below remain unchanged until an explicit release is published.
+**0.8.4** reduces sign-in preparation with retained, camera-off models and checked-hash Python bytecode. Fresh identity and blink requirements remain unchanged. The service keeps one model-only standby between sign-ins, trading idle memory for faster preparation.
 
 Choose the distribution deliberately. Both are unsigned **experimental pre-releases**, require **Windows 10/11 x64 and .NET Framework 4.8**, and include the private Python runtime, dependencies, recognition models and upstream notices. Windows on ARM is unsupported.
 
 | Download | Installation and scope |
 | :--- | :--- |
-| [**v0.8.2 complete installer**](https://github.com/notg0d/viso/releases/tag/v0.8.2) | Desktop plus experimental Windows sign-in provider/service. Administrator approval and explicit risk consent required. Per-user desktop state in `%LOCALAPPDATA%\Viso`. |
+| [**v0.8.4 complete installer**](https://github.com/notg0d/viso/releases/tag/v0.8.4) | Desktop plus experimental Windows sign-in provider/service. Administrator approval and explicit risk consent required. Per-user desktop state in `%LOCALAPPDATA%\Viso`. |
 | [**v0.8.1 portable desktop ZIP**](https://github.com/notg0d/viso/releases/tag/v0.8.1) | Unchanged desktop-only bundle, no sign-in installation or administrator approval. State in `.viso/` beside the extracted app. |
 
-### Complete installer (0.8.2)
+### Complete installer (0.8.4)
 
 Download these four release assets as needed; only the executable is needed to install, but verify it against the checksum first:
 
-- **`Viso-0.8.2-Setup-x64.exe`** — all-in-one installer (**130,520,374 bytes**).
-- **`Viso-0.8.2-Setup-x64.exe.sha256`** — executable checksum.
-- **`Viso-0.8.2-Setup-x64.exe.json`** — clean-source provenance, versions and checksums.
-- **`Viso-0.8.2-Setup-x64.exe.validation.json`** — exact-build pre-publication evidence and unverified gates; historical flags reflect validation time.
+- **`Viso-0.8.4-Setup-x64.exe`** — all-in-one installer.
+- **`Viso-0.8.4-Setup-x64.exe.sha256`** — executable checksum.
+- **`Viso-0.8.4-Setup-x64.exe.json`** — clean-source provenance, versions and checksums.
+- **`Viso-0.8.4-Setup-x64.exe.validation.json`** — exact-build validation evidence and remaining manual gates.
 
 After verification, close Viso in every Windows session, run Setup and accept its administrator/sign-in-risk prompts. Open Viso from the Start menu as your ordinary Windows user. First-time users enroll a face and explicitly link their account in Settings using the account password, not a Hello PIN. Setup never enrolls, collects credentials, links accounts or opens the camera.
 
-The tag is pinned to production build commit `3f35b09`; only the latest logo-equipped, native-PowerShell-corrected build is published. Do not use superseded local installers. Final elevated embedded-payload verification, clean-machine installation/lifecycle/reboot and current-build physical authentication remain open validation gates. Read the [installer storage, upgrades/removal and recovery guide](installer.md), and keep normal Windows password/PIN access available.
+The release tag identifies the clean production build recorded in the provenance file. Earlier release tags and assets remain unchanged. Read the [installer storage, upgrades/removal and recovery guide](installer.md), and keep normal Windows password/PIN access available. The validation record distinguishes automated coverage from clean-machine, reboot and physical authentication tests.
 
 ### Portable desktop only (0.8.1)
 
@@ -37,21 +37,21 @@ Extract the **entire ZIP** to a folder owned by your Windows user, then open **`
 
 Both distributions need a webcam for live enrollment; Image lab works without opening a camera. Windows SmartScreen may warn about the unsigned executables. This is experimental software, not a certified security product.
 
-The ZIP is a directly runnable folder bundle, **not a single-file executable or installer**. Recognition runs locally over private process pipes; it opens no HTTP server. The worker uses Python isolated mode (`-I`) and disables bytecode caches (`-B`), selecting the bundled runtime before a source checkout's `.venv`.
+The ZIP is a directly runnable folder bundle, **not a single-file executable or installer**. Recognition runs locally over private process pipes; it opens no HTTP server. The worker uses Python isolated mode (`-I`) and prevents bytecode cache writes (`-B`). It selects the bundled runtime before a source checkout's `.venv`.
 
 ## Verify the download
 
 In PowerShell, in the folder containing the download and its `.sha256`:
 
 ```powershell
-$file = 'Viso-0.8.2-Setup-x64.exe'
+$file = 'Viso-0.8.4-Setup-x64.exe'
 # For the portable desktop instead: $file = 'Viso-0.8.1-windows-x64.zip'
 $expected = (Get-Content ($file + '.sha256') -Raw).Split(' ')[0]
 $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actual -ne $expected) { throw 'Checksum mismatch. Do not run this download.' }
 ```
 
-The **v0.8.2 installer SHA-256** is `d18c27c57ae32775a9bfc2d03ea77270fb28eb2501b6effef0f07f1652b4e68f`. Its adjacent `.exe.json` records clean production source/build metadata and payload checksums. The unchanged **v0.8.1 ZIP SHA-256** is `8108b88d1d2b2c213827609f6ef6c7a8bdae63f9b91742d0a60df30d3cc0352e`.
+Use the checksum file supplied for the exact installer version. Its adjacent `.exe.json` also records the installer hash, source commit and payload manifest hash. The unchanged **v0.8.1 ZIP SHA-256** is `8108b88d1d2b2c213827609f6ef6c7a8bdae63f9b91742d0a60df30d3cc0352e`.
 
 For the portable ZIP, `SHA256SUMS.txt` inside the extracted folder records all payload files except itself. `RELEASE.json` records the production source commit, build date, desktop/Python versions, and exact dependency inventory. Checksums detect corruption; they are not a digital signature or independent proof of publisher identity.
 
@@ -91,6 +91,8 @@ From a prepared, clean Windows source checkout:
 ```
 
 Output is ignored under `desktop/releases/`, or use `-OutputDirectory PATH`. Existing artifacts are never overwritten. `-AllowDirty` builds a clearly marked **local draft only**; do not publish it. The dependency packager copies the installed dependency closure specified by `requirements.txt`, retaining runtime metadata/licenses, rather than copying unrelated packages, pip, or environment leftovers. Models are copied only from the pinned manifest and verified by loading/inference.
+
+Builds precompile `runtime/Lib` with checked source hashes and relative code filenames. Payload checksums include these caches. Development caches remain excluded. The worker can read packaged caches without writing new ones. Earlier downloads are not modified.
 
 On the [`test` branch](https://github.com/notg0d/viso/tree/test), validate the ZIP outside the repository:
 

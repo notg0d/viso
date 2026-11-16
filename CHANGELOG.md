@@ -2,29 +2,31 @@
 
 [Project overview](README.md) · [Development and validation](docs/development.md#validate-changes)
 
-The [0.8.2 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.2) and unchanged [0.8.1 desktop-only ZIP](https://github.com/notg0d/viso/releases/tag/v0.8.1) are experimental pre-releases; earlier entries describe development builds. Work is validated on `test`, then production source/documentation is synchronized to `main` without test sources, runners/fixtures, benchmarks, or the historical browser bench. Desktop and separately installed sign-in components can have different versions.
+The [0.8.4 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.4) and [0.8.1 desktop-only ZIP](https://github.com/notg0d/viso/releases/tag/v0.8.1) are experimental pre-releases. Earlier release assets remain unchanged. Production code and shared docs stay on `main`; regression suites and benchmarks stay on `test`. Desktop and separately installed sign-in components can have different versions.
 
-## Unreleased — Windows-state model retention and faster sign-in preparation
+## 0.8.4 — faster sign-in preparation (experimental pre-release)
 
-- Replace five-minute startup and 60-second standby leases with Windows-state-based model retention. Release unused models after sign-in when no other connected session needs them, and release all workers on suspend or shutdown.
+- Keep one unused model-only worker between sign-ins, including while Windows is unlocked. Lock notifications alone arrive too late to hide cold imports.
+- Preserve only a successfully initialized unused standby through suspend. Destroy active or loading workers, revoke existing pipes, and destroy every worker on shutdown. Automatic maintenance wake starts no replacement.
+- Precompile packaged Python libraries with checked source hashes and relative code filenames. Keep isolated `-I -B` worker launches. Manifests cover caches; validation rejects unexpected paths, interpreter tags, unchecked hashes and missing source.
 - Read each model once, verify those bytes, and initialize native inference on blank inputs during preloading. The camera stays off until a selected scan; profiles and blink evidence never cross attempts.
 - Report cold model initialization immediately. Bound preparation to 30 seconds and avoid background model loads beside an active worker.
 - Overlap model preparation with camera startup and exposure calibration after a selected verification request. Idle standby keeps the camera off. Recognition waits for both stages and discards startup frames before the fresh challenge.
-- Revoke the affected session's verification worker and result pipe after logon, unlock, logoff or disconnect. Delayed Windows-state queries cannot restore obsolete standby state.
+- Revoke the affected session's verification worker and result pipe after logon, unlock, logoff or disconnect. Revision guards reject obsolete retention decisions.
 - Preserve low-light exposure assistance, camera ownership, thresholds, fresh blink requirements, account records and power-generation checks. No dependency or model version changes.
-- Building does not install this update. Physical reboot, sleep, hibernate, camera startup and current-build Windows sign-in latency remain unverified; zero delay is not guaranteed.
+- Apply the complete installer to update the separate sign-in service. Upgrades retain enrollment and account links. Hardware startup times vary; clean-machine, reboot, sleep and multi-user validation remain necessary.
 
-## 0.8.3 — lighting assistance and startup reliability (release candidate)
+## 0.8.3 — lighting assistance and startup reliability (experimental pre-release)
 
 - Measured lighting feedback in desktop capture and Windows sign-in: low, overly bright, uneven or usable. Face measurements are distinguished from scene-only estimates. Feedback is advisory and never bypasses recognition or eye-detail checks.
 - Separate, off-by-default desktop/sign-in exposure assistance. Supported DirectShow controls are read back, bounded to at most 15.6 ms and tuned only before capture starts; slow/overbright capture rolls back and requires a fresh scan if a blink challenge is active. Unsupported controls leave capture available. Normal shutdown restores original settings; process/driver crashes cannot guarantee restoration.
 - Save a linked account’s camera/exposure options without replacing its enrollment or password. Old encrypted records and preferences default assistance to off; settings changes revoke in-flight verification.
 - No new runtime dependencies, screen fill light, software image brightening, model changes or relaxed match/blink thresholds. Hardware low-light performance, cold boot and current-build Windows unlock remain unverified.
-- New installer version; previous public `v0.8.2` assets remain unchanged. This candidate is built locally, not automatically published or installed.
+- Complete installer for desktop and Windows sign-in. Earlier release assets remain unchanged.
 
-- Earlier startup work extended the boot cache to five minutes and retained 60-second leases for later locks/retries. The unreleased Windows-state retention above supersedes these leases. The camera stays closed until a selected scan.
+- Earlier startup work extended the boot cache to five minutes and retained 60-second leases for later locks/retries. The 0.8.4 retention policy supersedes these leases. The camera stays closed until a selected scan.
 - Avoid background model prewarm competing with an already active worker during startup/session-notification races. Identity, blink, cancellation and one-shot worker isolation are unchanged. Physical cold-boot latency still needs measurement after deployment.
-- Keep personal research, comparison, performance and validation reports local and out of future installers; retain public setup/security/developer guides and attribution.
+- Installer bundles public setup, security and developer guides, with upstream attribution. Personal research and validation reports are excluded.
 
 ## 0.8.2 — complete Windows installer (experimental pre-release)
 
@@ -40,10 +42,10 @@ The [0.8.2 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.
 
 ### Camera compatibility and diagnostics
 
-- Reviewed Windows Face Unlock's enrollment/ArcFace/MiniFASNet flow, scheduled-task lifecycle, pipe trust boundary and updater limitations; the detailed research report is local-only.
+- Reviewed Windows Face Unlock's enrollment/ArcFace/MiniFASNet flow, scheduled-task lifecycle, pipe trust boundary and updater limitations.
 - Serial startup fallback: negotiated DirectShow → default DirectShow → default Media Foundation, with actual-frame validation, release-before-reopen and one shared deadline. No streaming reconnect, parallel owners or blink-rule change.
 - Backend/first-frame timing in Activity; explicit JSON export adds allowlisted runtime/camera metadata, without images/vectors, credentials, identifiers or raw diagnostic exceptions. Old-generation camera errors cannot cancel a newer session.
-- No new recognition dependencies, automatic locking, upstream code copying or blink-rule changes. The user-authorized local source update `ac7ce8b` was subsequently installed with existing enrollment/links retained; the published v0.8.1 ZIP remains unchanged.
+- No new recognition dependencies, automatic locking, upstream code copying or blink-rule changes. The v0.8.1 ZIP remains unchanged.
 - Validation: 135 Python tests, native smoke with 63 raster/resource cases and diagnostic/stale-event assertions, provider lifecycle tests, 59 service/protocol checks, 11 deployment checks and 25 packaged shared-runtime checks. Physical fallback/multi-camera mapping remain unverified.
 
 ## Documentation and repository organization — 2026-11-11
@@ -90,7 +92,7 @@ This is desktop-only. Installed sign-in remains **0.8.0**; no reinstall, re-enro
 
 ### Deployment and limits
 
-The authorized administrator upgrade retained the encrypted account link, checked 19 installed file hashes, preserved other provider registrations, and verified x64 registration, automatic LocalSystem startup, and 25 installed-runtime checks. These runtime checks ran as the elevated development user, not LocalSystem. No restart was needed.
+Upgrades support retained encrypted account links and preserve other provider registrations. Component validation covers x64 registration and the private runtime; it does not establish LocalSystem camera behavior.
 
 Physical circular enrollment, current-build authentication, long sleep/hibernate/Modern Standby, reboot, Microsoft-account, and multi-user behavior remain unverified. Re-enroll and explicitly **Link / update account** for the new circular snapshot. The gesture is not TrueDepth or a measured accuracy gain.
 

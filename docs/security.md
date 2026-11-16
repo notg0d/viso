@@ -32,7 +32,7 @@ The service accepts no supplied images or biometric success claims. It authentic
 | `desktop.json` in the same state directory | Desktop preferences, separate from face data. This is not an encrypted biometric vault. |
 | Memory-only session | Profile lives only in the worker and is not written to disk. Does not create/update a Windows account link. |
 | `%ProgramData%\Viso\Accounts\<SID>.dpapi` | Optional sign-in account kind/name, **saved account password**, imported profile snapshot, camera index, and revision, encrypted with **machine-scope DPAPI**. Administrators/SYSTEM-only ACLs are essential. |
-| Activity/export | Session timestamps/messages; unreleased source adds allowlisted runtime/camera metadata, excluding credentials, identifiers, vectors/frames and raw diagnostic exceptions. Event text may contain a chosen profile name or an error path; review before sharing. |
+| Activity/export | Session timestamps/messages and allowlisted runtime/camera metadata, excluding credentials, identifiers, vectors/frames and raw diagnostic exceptions. Event text may contain a chosen profile name or an error path; review before sharing. |
 | `tests/.fixtures/` / `test-results/` | Development-only public portraits and automated artifacts, ignored by Git. Not user enrollment. |
 
 Current-user DPAPI protects data at rest, not against every process running as the same Windows user. Machine-scope DPAPI alone is not per-user isolation; protected ProgramData ownership/ACLs and service caller checks provide that isolation. A profile cannot be ported by simply copying its encrypted file to another user/machine.
@@ -41,7 +41,7 @@ Recognition runs locally after package/model setup. The pinned MediaPipe package
 
 ## Account changes and revocation
 
-Account linking validates the password and requires the resulting SID to match the caller. Links keep a **snapshot**, so enrollment, password, camera, or account identity changes require explicit **Link / update account**.
+Account linking validates the password and requires the resulting SID to match the caller. Links keep a **snapshot**. Enrollment, password or account-identity changes require explicit **Link / update account**. Camera/exposure-only changes use **Save sign-in camera settings**, without replacing the profile or password.
 
 Unlink/relink invalidates older revisions and pending work. A credential already released to LogonUI is usable once for at most ten seconds; unlink cannot retract a serialization Windows has already received. Suspend, cancellation, deselection, deadlines, and service shutdown revoke pending work. [Full lifecycle and removal rules](windows-signin.md#update-disable-remove).
 

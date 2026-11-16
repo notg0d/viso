@@ -27,12 +27,8 @@ function Get-VisoPayloadManifest([string]$folder, [string]$expectedHash) {
     if ($expectedHash -notmatch '^[0-9a-fA-F]{64}$') { throw 'A pinned payload manifest hash is required.' }
     $folder = [IO.Path]::GetFullPath($folder).TrimEnd('\')
     Assert-VisoNoReparse $folder
+    Assert-VisoPayloadPaths $folder
     $items = @(Get-ChildItem -LiteralPath $folder -Recurse -Force)
-    foreach ($item in $items) {
-        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse points are not allowed in the installer payload.' }
-        $relative = $item.FullName.Substring($folder.Length + 1).Replace('\','/')
-        if ($relative -match '(^|/)(\.viso|\.venv|\.git|__pycache__|tests?|test-results|node_modules|experiments)(/|$)' -or $relative -match '\.(dpapi|pyc|pyo|partial|log)$') { throw 'Private or development data was found in the installer payload.' }
-    }
     $manifestFile = Join-Path $folder 'installer\payload.json'
     if ((Get-FileHash -LiteralPath $manifestFile -Algorithm SHA256).Hash -ne $expectedHash) { throw 'Installer payload manifest does not match the compiled installer.' }
     $manifest = Get-Content -LiteralPath $manifestFile -Raw | ConvertFrom-Json

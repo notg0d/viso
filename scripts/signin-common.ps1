@@ -118,13 +118,90 @@ function Copy-VisoRuntime([string]$root, [string]$destination, [switch]$Protecte
         Set-VisoPayloadOwner $destination
         Assert-VisoTree $destination $true
     }
+    # Generate fresh caches with this runtime, not the developer's venv caches.
+    # Checked hashes survive relocation and reject changed source. -B prevents
+    # incidental import writes; compileall explicitly writes the build artifacts.
+    & "$runtime\python.exe" -I -B -m compileall -q --invalidation-mode checked-hash -s $destination "$runtime\Lib"
+    if ($LASTEXITCODE -ne 0) { throw 'Could not precompile the packaged Python runtime.' }
+    Assert-VisoPayloadPaths $destination
     Test-VisoRuntime $destination
+}
+
+function Assert-VisoPayloadPaths([string]$folder) {
+    # Read-only structural audit: never execute an unprotected installer payload.
+    $folder = [IO.Path]::GetFullPath($folder).TrimEnd('\')
+    Assert-VisoNoReparse $folder
+    $bytecode = $null
+    foreach ($item in Get-ChildItem -LiteralPath $folder -Recurse -Force) {
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse points are not allowed in the payload.' }
+        $relative = $item.FullName.Substring($folder.Length + 1).Replace('\','/')
+        if ($relative -match '(^|/)(\.viso|\.venv|\.git|tests?|test-results|node_modules|experiments)(/|$)' -or
+            $relative -match '\.(dpapi|pyo|partial|log)$' -or $relative -match '(^|/)test_[^/]*\.py$' -or $relative -match '(^|/)pip([/-]|$)') {
+            throw "Private or development data was found in the payload: $relative"
+        }
+        if ($relative -notmatch '(^|/)__pycache__(/|$)|\.pyc$') { continue }
+        if (-not $bytecode) {
+            $inventory = Get-Content -LiteralPath (Join-Path $folder 'runtime\packages.json') -Raw | ConvertFrom-Json
+            $bytecode = $inventory.bytecode
+            if ($inventory.python -notmatch '^(\d+)\.(\d+)\.\d+$') { throw 'Invalid packaged Python version.' }
+            $tag = 'cpython-' + $Matches[1] + $Matches[2]
+            if (-not $bytecode -or $bytecode.cache_tag -cne $tag -or $bytecode.magic -cnotmatch '^[0-9a-f]{4}0d0a$' -or $bytecode.invalidation -cne 'checked-hash') {
+                throw 'Invalid packaged bytecode inventory.'
+            }
+        }
+        if ($item.PSIsContainer) {
+            if ($relative -cnotmatch '^runtime/Lib/(?:[^/]+/)*__pycache__$' -or @($relative.Split('/') | Where-Object { $_ -ceq '__pycache__' }).Count -ne 1) { throw 'Unexpected bytecode directory.' }
+            continue
+        }
+        if ($relative -cnotmatch ('^runtime/Lib/(?<parent>(?:[^/]+/)*)__pycache__/(?<module>[^/]+)\.' + [regex]::Escape($bytecode.cache_tag) + '\.pyc$')) { throw 'Unexpected bytecode path or interpreter tag.' }
+        $source = Join-Path $folder ('runtime/Lib/' + $Matches['parent'] + $Matches['module'] + '.py')
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw 'Bytecode without corresponding source is not allowed.' }
+        $stream = [IO.File]::OpenRead($item.FullName)
+        try {
+            $header = New-Object byte[] 16
+            if ($stream.Length -le 16 -or $stream.Read($header, 0, 16) -ne 16) { throw 'Truncated packaged bytecode.' }
+        } finally { $stream.Dispose() }
+        $magic = [BitConverter]::ToString($header, 0, 4).Replace('-','').ToLowerInvariant()
+        if ($magic -cne $bytecode.magic -or [BitConverter]::ToUInt32($header, 4) -ne 3) { throw 'Only checked-hash bytecode for the packaged interpreter is allowed.' }
+    }
+}
+
+function Get-VisoBytecodeCheck {
+    # Used only with a trusted runtime. Installer manifest validation stays read-only.
+    return @'
+import importlib.util, json, marshal, pathlib, sys, types
+root = pathlib.Path(sys.argv[1]).resolve()
+runtime = root / 'runtime'
+inventory = json.loads((runtime / 'packages.json').read_text(encoding='utf-8'))
+assert inventory['python'] == sys.version.split()[0]
+assert inventory['bytecode'] == {'cache_tag': sys.implementation.cache_tag, 'magic': importlib.util.MAGIC_NUMBER.hex(), 'invalidation': 'checked-hash'}
+sources = list((runtime / 'Lib').rglob('*.py'))
+assert sources, 'No packaged Python sources'
+expected = set()
+def check_code(code, filename):
+    assert isinstance(code, types.CodeType), filename
+    assert code.co_filename.replace('\\', '/') == filename, code.co_filename
+    for value in code.co_consts:
+        if isinstance(value, types.CodeType):
+            check_code(value, filename)
+for source in sources:
+    cache = pathlib.Path(importlib.util.cache_from_source(str(source)))
+    expected.add(cache)
+    data = cache.read_bytes()
+    assert data[:4] == importlib.util.MAGIC_NUMBER and int.from_bytes(data[4:8], 'little') == 3, cache
+    assert data[8:16] == importlib.util.source_hash(source.read_bytes()), cache
+    check_code(marshal.loads(data[16:]), source.relative_to(root).as_posix())
+assert set(root.rglob('*.pyc')) == expected, 'Unexpected or missing bytecode'
+print(f'Checked-hash bytecode, source hashes and relative code filenames passed ({len(expected)} modules).')
+'@
 }
 
 function Test-VisoRuntime([string]$destination) {
     # Shared by source deployment and the offline, protected installer staging path.
     # Import isolation plus actual model checksums/loading/inference; no camera access.
     $runtime = Join-Path $destination 'runtime'
+    & "$runtime\python.exe" -I -B -c (Get-VisoBytecodeCheck) $destination
+    if ($LASTEXITCODE -ne 0) { throw 'The packaged Python bytecode did not validate.' }
     $check = @'
 import pathlib, sys
 root = pathlib.Path(sys.argv[1]).resolve()
