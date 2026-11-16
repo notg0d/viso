@@ -28,6 +28,7 @@ desktop/Viso/RenderingChecks.cs
 scripts/download_test_fixtures.py
 scripts/test*.ps1
 scripts/benchmark_matcher.py
+scripts/benchmark_startup.py
 scripts/check-docs.py
 /experiments/browser/
 # Ignore leftover root files from the former browser layout as well.
