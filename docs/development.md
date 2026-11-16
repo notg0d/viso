@@ -94,11 +94,11 @@ Develop and validate on `test`, committing production changes separately from te
 
 Build publishable artifacts from a **clean production commit**, run the applicable artifact checks using `test` tools without embedding those tools, and publish the source commit before distributing bundled commit-pinned links. Tag the exact build commit. A later documentation cleanup does not move a release tag or change provenance; the v0.8.2 tag remains on `3f35b09` and the original v0.8.1 release stays unchanged.
 
-Release assets belong on GitHub Releases, not in source commits. For the complete installer, upload only Setup.exe, `.sha256`, provenance `.json` and the exact-build validation `.json`; exclude payload staging, superseded installers, profiles, credentials, models downloaded outside a release and development environments. Keep experimental status and unverified manual gates explicit. Branch/release publication never authorizes installation.
+Release assets belong on GitHub Releases, not in source commits. Keep the current local assets in `desktop/releases/`. Move older builds into dated folders under `desktop/release-archive/`; do not overwrite them. Both folders remain ignored. For the complete installer, upload only Setup.exe, `.sha256`, provenance `.json` and the exact-build validation `.json`; exclude payload staging, superseded installers, profiles, credentials, models downloaded outside a release and development environments. Keep experimental status and unverified manual gates explicit. Branch/release publication never authorizes installation.
 
 ## Generated files and local state
 
-Ignored paths include `.venv/`, `.viso/`, `node_modules/`, `dist/`, model weights/licenses, Python/TypeScript caches, `desktop/bin/`, `desktop/releases/`, `signin/bin/`, `tests/.fixtures/`, and `test-results/`. The dependency/build ignore patterns also cover the nested browser package.
+Ignored paths include `.venv/`, `.viso/`, `node_modules/`, `dist/`, model weights/licenses, Python/TypeScript caches, `desktop/bin/`, `desktop/releases/`, `desktop/release-archive/`, `signin/bin/`, `tests/.fixtures/`, and `test-results/`. The dependency/build ignore patterns also cover the nested browser package.
 
 Existing ignored root `src/`, `node_modules/`, `dist/`, and `tsconfig.tsbuildinfo` can remain from the former browser layout; they are not published as production source. Fresh browser installs/builds belong under `experiments/browser/`. Repository cleanup must not delete `.viso/`, `%LOCALAPPDATA%\Viso`, protected account records, a working environment, release artifacts or unfamiliar user work. Native paths and local enrollment/account links are unchanged.
 
