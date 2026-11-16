@@ -2,6 +2,7 @@
 
 import argparse
 import importlib.metadata as metadata
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -59,6 +60,11 @@ def package(root: Path, destination: Path) -> None:
     info = {
         "python": sys.version.split()[0],
         "architecture": "windows-x64",
+        "bytecode": {
+            "cache_tag": sys.implementation.cache_tag,
+            "magic": importlib.util.MAGIC_NUMBER.hex(),
+            "invalidation": "checked-hash",
+        },
         "dependencies": {name: distribution.version for name, distribution in sorted(selected.items())},
     }
     (destination / "packages.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")

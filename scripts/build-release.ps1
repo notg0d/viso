@@ -83,15 +83,8 @@ grant for all Viso code. This experimental build is provided without warranty.
 [IO.File]::WriteAllText((Join-Path $bundle 'README.txt'), $readme + "`n", $utf8)
 
 # A final payload audit catches accidental development files or personal state.
+Assert-VisoPayloadPaths $bundle
 $files = @(Get-ChildItem -LiteralPath $bundle -File -Recurse -Force)
-foreach ($file in $files) {
-    $relative = $file.FullName.Substring($bundle.Length + 1).Replace('\', '/')
-    if ($relative -match '(^|/)(\.viso|\.venv|\.git|__pycache__|tests?|test-results|node_modules|experiments)(/|$)' -or
-        $relative -match '\.(pyc|pyo|partial|dpapi|log)$' -or $relative -match '(^|/)test_[^/]*\.py$' -or
-        $relative -match '(^|/)pip([/-]|$)' -or $file.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-        throw "Excluded file found in release payload: $relative"
-    }
-}
 $hashes = foreach ($file in $files | Sort-Object FullName) {
     (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $file.FullName.Substring($bundle.Length + 1).Replace('\', '/')
 }

@@ -13,7 +13,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 
-[assembly: System.Reflection.AssemblyVersion("0.8.3.0")]
+[assembly: System.Reflection.AssemblyVersion("0.8.4.0")]
 
 namespace Viso.SignIn
 {
@@ -196,7 +196,10 @@ namespace Viso.SignIn
         private volatile bool stopping;
         private volatile bool suspended;
         private int powerGeneration;
-        public SignInService() : this(AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\'), SessionState.NeedsModels) { }
+        public SignInService() : this(AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\')) { }
+        // Lock notifications arrive too late to hide cold imports. Keep one
+        // unused model-only worker ready even while the desktop is unlocked.
+        internal SignInService(string root) : this(root, delegate { return true; }) { }
         internal SignInService(string root, Func<int, bool?, bool> needsModels)
         {
             if (needsModels == null) throw new ArgumentNullException("needsModels");
@@ -240,12 +243,19 @@ namespace Viso.SignIn
                 lock (workers) {
                     if (stopping) return;
                     standbyWanted = false; stateRevision++;
-                    foreach (var worker in workers) worker.Dispose();
-                    workers.Clear(); standby = null;
+                    // Only an UNUSED, successfully initialized standby can
+                    // survive sleep. It has never received a profile or opened
+                    // a camera. Revoke every active/loading worker and all pipes.
+                    var retained = standby != null && standby.SessionId == -1 && standby.IsAlive
+                        && standby.Ready.Status == TaskStatus.RanToCompletion ? standby : null;
+                    foreach (var worker in workers) if (worker != retained) worker.Dispose();
+                    workers.Clear(); standby = retained;
+                    if (retained != null) workers.Add(retained);
                 }
             } else if (status == PowerBroadcastStatus.ResumeAutomatic || status == PowerBroadcastStatus.ResumeSuspend || status == PowerBroadcastStatus.ResumeCritical) {
                 suspended = false;
-                // Automatic background wake does not imply a user is present.
+                // Automatic wake keeps an existing clean cache, but does not
+                // launch work or imply that a user is present.
                 if (status != PowerBroadcastStatus.ResumeAutomatic && !stopping) ObserveFailure(RefreshSessionState());
             }
         }
@@ -291,8 +301,8 @@ namespace Viso.SignIn
                 bool wanted;
                 try { wanted = needsModels(session, awaiting); } catch { wanted = true; }
                 lock (workers) {
-                    // A delayed startup/lock query cannot resurrect a cache after
-                    // an unlock, suspend, or a newer session-state notification.
+                    // A delayed query cannot supersede a suspend, shutdown, or
+                    // a newer session-state notification.
                     if (stopping || suspended || revision != stateRevision) return;
                     standbyWanted = wanted;
                     if (!wanted && standby != null) {
@@ -470,7 +480,7 @@ namespace Viso.SignIn
                     if (stopping || suspended || !standbyWanted || workers.Count != 0) return;
                     standby = new Worker(root, true); workers.Add(standby);
                     var prepared = standby;
-                    // Retain models while sign-in is needed, not for a short TTL.
+                    // Retain unused models between sign-ins, not for a short TTL.
                     // Initialize still has a deadline; failures are retired.
                     prepared.Ready.ContinueWith(delegate(Task ready) {
                         var ignored = ready.Exception;
