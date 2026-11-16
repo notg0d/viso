@@ -53,6 +53,89 @@ try {
         Reject { Get-VisoPayloadManifest $sample $hash } 'Private/development data was accepted.'
         Remove-Item -LiteralPath (Split-Path $path -Parent) -Recurse -Force
     }
+    # Use the trusted development interpreter to build a synthetic cache. The
+    # read-only manifest audit must never try to execute sample runtime/python.exe.
+    $python = Join-Path $root '.venv\Scripts\python.exe'
+    $fixture = @'
+import importlib.util, json, marshal, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+source = root / 'runtime' / 'Lib' / 'cache_fixture.py'
+source.parent.mkdir(parents=True, exist_ok=True)
+source.write_text('def fixture():\n    return 42\n', encoding='utf-8')
+cache = pathlib.Path(importlib.util.cache_from_source(str(source)))
+cache.parent.mkdir()
+cache.write_bytes(importlib.util.MAGIC_NUMBER + (3).to_bytes(4, 'little') + importlib.util.source_hash(source.read_bytes()) + marshal.dumps(compile(source.read_bytes(), 'runtime/Lib/cache_fixture.py', 'exec')))
+(root / 'runtime' / 'packages.json').write_text(json.dumps({'python': sys.version.split()[0], 'bytecode': {'cache_tag': sys.implementation.cache_tag, 'magic': importlib.util.MAGIC_NUMBER.hex(), 'invalidation': 'checked-hash'}}))
+print(cache.name)
+'@
+    $cacheFile = & $python -I -B -c $fixture $sample
+    Check ($LASTEXITCODE -eq 0) 'Could not create synthetic checked-hash bytecode.'
+    $cacheFile = Join-Path (Join-Path $sample 'runtime\Lib\__pycache__') ([string]$cacheFile)
+    $validCache = [IO.File]::ReadAllBytes($cacheFile)
+    $hash = Write-Manifest $sample
+    Check ((Get-VisoPayloadManifest $sample $hash).files.Count -eq 13) 'Valid manifest-covered runtime bytecode was rejected.'
+    & $python -I -B -c (Get-VisoBytecodeCheck) $sample
+    Check ($LASTEXITCODE -eq 0) 'Synthetic bytecode source hashes or relative filenames failed.'
+    foreach ($flags in 0, 1, 2, 7) {
+        $badCache = [byte[]]$validCache.Clone(); $badCache[4] = $flags
+        [IO.File]::WriteAllBytes($cacheFile, $badCache)
+        $badHash = Write-Manifest $sample
+        Reject { Get-VisoPayloadManifest $sample $badHash } 'Non-checked-hash bytecode was accepted, despite a repinned manifest.'
+    }
+    $badCache = [byte[]]$validCache.Clone(); $badCache[0] = $badCache[0] -bxor 1
+    [IO.File]::WriteAllBytes($cacheFile, $badCache)
+    $badHash = Write-Manifest $sample
+    Reject { Get-VisoPayloadManifest $sample $badHash } 'Bytecode for a different interpreter was accepted.'
+    [IO.File]::WriteAllBytes($cacheFile, [byte[]]$validCache[0..15])
+    $badHash = Write-Manifest $sample
+    Reject { Get-VisoPayloadManifest $sample $badHash } 'Truncated bytecode was accepted.'
+    [IO.File]::WriteAllBytes($cacheFile, $validCache)
+    $sourceFile = Join-Path $sample 'runtime\Lib\cache_fixture.py'
+    Move-Item $sourceFile ($sourceFile + '.saved')
+    $badHash = Write-Manifest $sample
+    Reject { Get-VisoPayloadManifest $sample $badHash } 'Sourceless bytecode was accepted.'
+    Move-Item ($sourceFile + '.saved') $sourceFile
+    foreach ($excluded in 'backend/viso/__pycache__/dev.cpython-314.pyc', 'runtime/Lib/orphan.pyc', 'runtime/Lib/__pycache__/cache_fixture.cpython-000.pyc', 'runtime/Lib/__pycache__/cache_fixture.cpython-314.opt-1.pyc', 'runtime/Lib/__pycache__/orphan.cpython-314.pyc') {
+        $path = Join-Path $sample $excluded
+        New-Item -ItemType Directory -Path (Split-Path $path -Parent) -Force | Out-Null
+        [IO.File]::WriteAllBytes($path, $validCache)
+        $badHash = Write-Manifest $sample
+        Reject { Get-VisoPayloadManifest $sample $badHash } ('Unexpected cache was accepted: ' + $excluded)
+        Remove-Item -LiteralPath $path
+        if ($excluded.StartsWith('backend/')) { Remove-Item -LiteralPath (Split-Path $path -Parent) }
+    }
+    # The protected-runtime check also verifies source hashes and nested code
+    # filenames, which cannot be inferred from a file's SHA-256 alone.
+    $rejectCheck = @'
+import sys
+try:
+    exec(sys.argv[2])
+except (AssertionError, ValueError, FileNotFoundError):
+    sys.exit(1)
+'@
+    $badCache = [byte[]]$validCache.Clone(); $badCache[8] = $badCache[8] -bxor 1
+    [IO.File]::WriteAllBytes($cacheFile, $badCache)
+    & $python -I -B -c $rejectCheck $sample (Get-VisoBytecodeCheck)
+    Check ($LASTEXITCODE -ne 0) 'A wrong bytecode source hash was accepted.'
+    [IO.File]::WriteAllBytes($cacheFile, $validCache)
+    $badFilename = @'
+import marshal, pathlib, sys
+cache = pathlib.Path(sys.argv[1])
+data = cache.read_bytes()
+code = marshal.loads(data[16:])
+nested = next(value for value in code.co_consts if hasattr(value, 'co_filename'))
+code = code.replace(co_consts=tuple(nested.replace(co_filename='C:/developer/private/path.py') if value is nested else value for value in code.co_consts))
+cache.write_bytes(data[:16] + marshal.dumps(code))
+'@
+    & $python -I -B -c $badFilename $cacheFile
+    Check ($LASTEXITCODE -eq 0) 'Could not create synthetic non-relocatable bytecode.'
+    & $python -I -B -c $rejectCheck $sample (Get-VisoBytecodeCheck)
+    Check ($LASTEXITCODE -ne 0) 'A private absolute code filename was accepted.'
+    [IO.File]::WriteAllBytes($cacheFile, $validCache)
+    $hash = Write-Manifest $sample
+    [IO.File]::WriteAllBytes($cacheFile, $badCache)
+    Reject { Get-VisoPayloadManifest $sample $hash } 'Modified bytecode bypassed manifest checksums.'
+    [IO.File]::WriteAllBytes($cacheFile, $validCache)
     $target = New-Item -ItemType Directory -Path (Join-Path $temporary 'junction target')
     $junction = Join-Path $sample 'junction'
     New-Item -ItemType Junction -Path $junction -Target $target.FullName | Out-Null

@@ -195,21 +195,8 @@ namespace Viso.SignIn
                 Check(!otherWaiting.IsCompleted);
                 other.Dispose(); SignInService.ObserveFailure(otherWaiting);
             }
-            Console.WriteLine("Checking console and multi-session model retention...");
-            var sessions = new[] { new SessionState.Session { Id = 0, State = 0 }, new SessionState.Session { Id = 1, State = 0 }, new SessionState.Session { Id = 2, State = 4 } };
-            Check(!SessionState.NeedsModels(1, sessions, -1, null, id => id == 2)); // Disconnected user is ignored.
-            Check(SessionState.NeedsModels(1, sessions, 1, true, id => false)); // Lock notification wins over a lagging query.
-            Check(!SessionState.NeedsModels(1, sessions, 1, false, id => true)); // Unlock notification wins too.
-            sessions[2].State = 1;
-            Check(SessionState.NeedsModels(1, sessions, 1, false, id => id == 2)); // Another connected locked user.
-            Check(!SessionState.NeedsModels(1, sessions, 2, false, id => false));
-            Check(SessionState.NeedsModels(uint.MaxValue, new SessionState.Session[0], -1, null, id => false)); // Console transition.
-            Check(SessionState.NeedsModels(1, sessions, -1, null, id => true)); // Locked or unknown state.
-            // The real WTS query inspects state only. It does not open a camera,
-            // access the account vault, or trigger workstation lock/unlock.
-            bool stateNeedsModels = SessionState.NeedsModels(-1, null);
-            Console.WriteLine("Current Windows state needs model standby: " + stateNeedsModels + ".");
-            Check(true);
+            // Model residency no longer depends on locked/unlocked WTS state.
+            // Authentication revocation remains session-local (tested above).
         }
         private static async Task TestRelay(bool disconnect)
         {
@@ -304,7 +291,7 @@ namespace Viso.SignIn
             using (var worker = new Worker(root)) {
                 worker.Start(account, "validate"); Check(Convert.ToString((await worker.Next())["event"]) == "error");
             }
-            Console.WriteLine("Checking Windows-state retention, alternative sign-in and suspend cleanup...");
+            Console.WriteLine("Checking standby retirement and model-only suspend retention...");
             bool wanted = true;
             using (var service = new SignInService(root, delegate { return wanted; })) {
                 await service.RefreshSessionState(); var prepared = Field<Worker>(service, "standby"); Check(prepared != null);
@@ -322,19 +309,76 @@ namespace Viso.SignIn
                 wanted = true; await service.SessionChanged(SessionChangeReason.SessionLogoff, 1);
                 prepared = Field<Worker>(service, "standby"); await prepared.Ready;
                 using (var process = Process.GetProcessById(prepared.ProcessId)) {
-                    service.PowerChanged(PowerBroadcastStatus.Suspend); Check(process.WaitForExit(3000));
-                    Check(Field<Worker>(service, "standby") == null && Field<HashSet<Worker>>(service, "workers").Count == 0);
+                    service.PowerChanged(PowerBroadcastStatus.Suspend);
+                    Check(!process.HasExited && Field<Worker>(service, "standby") == prepared);
+                    Check(Field<HashSet<Worker>>(service, "workers").Count == 1);
                 }
-                service.PowerChanged(PowerBroadcastStatus.ResumeAutomatic); Check(Field<Worker>(service, "standby") == null);
+                service.PowerChanged(PowerBroadcastStatus.ResumeAutomatic); Check(Field<Worker>(service, "standby") == prepared);
                 service.PowerChanged(PowerBroadcastStatus.ResumeSuspend);
                 await WaitForStandby(service); prepared = Field<Worker>(service, "standby"); await prepared.Ready;
-                // An unlock of another user must retain the cache if a connected
-                // locked session still needs sign-in (the WTS resolver says true).
+                // An unlock of another user also preserves an unused cache.
                 await service.SessionChanged(SessionChangeReason.SessionUnlock, 2);
                 Check(Field<Worker>(service, "standby") == prepared && prepared.IsAlive);
                 using (var process = Process.GetProcessById(prepared.ProcessId)) {
                     service.Dispose(); service.Dispose(); Check(process.WaitForExit(3000));
                     await service.RefreshSessionState(); Check(Field<Worker>(service, "standby") == null);
+                }
+            }
+            Console.WriteLine("Checking production retention across repeated unlock/lock and sleep/wake...");
+            using (var service = new SignInService(root)) {
+                await service.RefreshSessionState(); var prepared = Field<Worker>(service, "standby"); await prepared.Ready;
+                for (int cycle = 0; cycle < 3; cycle++) {
+                    int generation = service.SessionGeneration(1);
+                    await service.SessionChanged(SessionChangeReason.SessionUnlock, 1);
+                    Reject(delegate { service.RequireSessionGeneration(1, generation); });
+                    await service.SessionChanged(SessionChangeReason.SessionLock, 1);
+                    Check(Field<Worker>(service, "standby") == prepared && prepared.IsAlive && prepared.SessionId == -1);
+                    int power = Field<int>(service, "powerGeneration");
+                    service.PowerChanged(PowerBroadcastStatus.Suspend);
+                    Reject(delegate { service.RequirePowerGeneration(power); });
+                    Invoke(service, "PrepareWorker");
+                    Check(Field<Worker>(service, "standby") == prepared && Field<HashSet<Worker>>(service, "workers").Count == 1);
+                    service.PowerChanged(PowerBroadcastStatus.ResumeAutomatic);
+                    Check(Field<Worker>(service, "standby") == prepared);
+                    service.PowerChanged(PowerBroadcastStatus.ResumeSuspend);
+                    await service.RefreshSessionState();
+                    Check(Field<Worker>(service, "standby") == prepared && prepared.IsAlive);
+                }
+                using (var process = Process.GetProcessById(prepared.ProcessId)) {
+                    service.Dispose(); Check(process.WaitForExit(3000));
+                }
+            }
+            using (var service = new SignInService(root)) {
+                await service.RefreshSessionState(); var loading = Field<Worker>(service, "standby");
+                Check(!loading.Ready.IsCompleted);
+                using (var process = Process.GetProcessById(loading.ProcessId)) {
+                    service.PowerChanged(PowerBroadcastStatus.Suspend);
+                    Check(process.WaitForExit(3000) && Field<Worker>(service, "standby") == null);
+                    service.PowerChanged(PowerBroadcastStatus.ResumeAutomatic);
+                    Check(Field<Worker>(service, "standby") == null); // No work on maintenance wake.
+                }
+            }
+            Console.WriteLine("Checking suspend destroys a consumed worker and rejects its request...");
+            using (var service = new SignInService(root)) {
+                await service.RefreshSessionState(); var prepared = Field<Worker>(service, "standby"); await prepared.Ready;
+                int power = Field<int>(service, "powerGeneration");
+                using (var process = Process.GetProcessById(prepared.ProcessId)) {
+                    var canceled = (Task)typeof(SignInService).GetMethod("WithWorker", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(service, new object[] {
+                        new Account { Profile = "{}" }, "verify", new Func<Worker, Task>(delegate(Worker worker) {
+                            Check(worker == prepared && worker.SessionId == 1 && Field<Worker>(service, "standby") == null);
+                            service.PowerChanged(PowerBroadcastStatus.Suspend);
+                            Check(Field<HashSet<Worker>>(service, "workers").Count == 0 && Field<Worker>(service, "standby") == null);
+                            return Task.FromResult(0);
+                        }), power, 1, service.SessionGeneration(1)
+                    });
+                    try { await canceled; throw new Exception("Suspend did not reject a consumed request."); }
+                    catch (OperationCanceledException) { Check(true); }
+                    Check(process.WaitForExit(3000));
+                    service.PowerChanged(PowerBroadcastStatus.ResumeAutomatic);
+                    Check(Field<Worker>(service, "standby") == null);
+                    service.PowerChanged(PowerBroadcastStatus.ResumeSuspend);
+                    await WaitForStandby(service); await Field<Worker>(service, "standby").Ready;
+                    Check(Field<Worker>(service, "standby") != prepared);
                 }
             }
             wanted = true;

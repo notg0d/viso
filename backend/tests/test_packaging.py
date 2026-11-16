@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -54,7 +55,13 @@ class PackagingTests(unittest.TestCase):
         copied = {p.relative_to(self.destination).as_posix() for p in self.destination.rglob("*") if p.is_file()}
         self.assertEqual(copied, {"Lib/site-packages/rootpkg/__init__.py", "Lib/site-packages/rootpkg-1.0.dist-info/LICENSE",
                                   "Lib/site-packages/child/__init__.py", "Lib/site-packages/child-2.0.dist-info/LICENSE", "packages.json"})
-        self.assertEqual(json.loads((self.destination / "packages.json").read_text())["dependencies"], {"child": "2.0", "rootpkg": "1.0"})
+        inventory = json.loads((self.destination / "packages.json").read_text())
+        self.assertEqual(inventory["dependencies"], {"child": "2.0", "rootpkg": "1.0"})
+        self.assertEqual(inventory["bytecode"], {
+            "cache_tag": sys.implementation.cache_tag,
+            "magic": importlib.util.MAGIC_NUMBER.hex(),
+            "invalidation": "checked-hash",
+        })
 
     def test_pin_mismatch_fails(self):
         with self.assertRaisesRegex(RuntimeError, "does not satisfy"):

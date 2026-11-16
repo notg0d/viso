@@ -23,7 +23,11 @@ def validate(root: Path, fixture: Path, allow_dirty: bool) -> None:
     assert not (root / ".viso").exists()
     assert not (root / "runtime" / "Lib" / "site-packages" / "pip").exists()
     assert not list(root.rglob("*.dpapi"))
-    assert not list(root.rglob("__pycache__"))
+    caches = {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in root.rglob("*.pyc")}
+    assert caches, "Build-time runtime bytecode is missing"
+    assert all(p.startswith("runtime/Lib/") and "/__pycache__/" in p for p in caches)
+    assert not list(root.rglob("*.pyo"))
     assert not list(root.rglob("tests"))
     assert not list(root.rglob("test_*.py"))
     assert not (root / "scripts").exists()
@@ -35,9 +39,25 @@ def validate(root: Path, fixture: Path, allow_dirty: bool) -> None:
     environment = dict(os.environ, PYTHONHOME=str(cwd), PYTHONPATH=str(cwd), PYTHONUSERBASE=str(cwd))
     check = r'''
 import importlib.metadata as metadata
-import json, pathlib, sys, tempfile
+import importlib.util, json, marshal, pathlib, sys, tempfile, types
 root = pathlib.Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(root))
+inventory = json.loads((root / 'runtime' / 'packages.json').read_text())
+assert inventory['bytecode'] == {'cache_tag': sys.implementation.cache_tag, 'magic': importlib.util.MAGIC_NUMBER.hex(), 'invalidation': 'checked-hash'}
+expected = set()
+def check_code(code, filename):
+    assert isinstance(code, types.CodeType) and code.co_filename.replace('\\', '/') == filename, filename
+    for value in code.co_consts:
+        if isinstance(value, types.CodeType):
+            check_code(value, filename)
+for source in (root / 'runtime' / 'Lib').rglob('*.py'):
+    cache = pathlib.Path(importlib.util.cache_from_source(str(source)))
+    expected.add(cache)
+    data = cache.read_bytes()
+    assert data[:4] == importlib.util.MAGIC_NUMBER and int.from_bytes(data[4:8], 'little') == 3, cache
+    assert data[8:16] == importlib.util.source_hash(source.read_bytes()), cache
+    check_code(marshal.loads(data[16:]), source.relative_to(root).as_posix())
+assert set(root.rglob('*.pyc')) == expected
 import cv2, numpy, mediapipe
 assert pathlib.Path(sys.base_prefix).resolve() == root / 'runtime', sys.base_prefix
 assert sys.flags.isolated and sys.flags.dont_write_bytecode
@@ -97,7 +117,8 @@ print('Isolated runtime, exact dependency inventory, model hashes, portrait infe
         if worker.poll() is None:
             worker.kill()
             worker.communicate()
-    assert not list(root.rglob("__pycache__"))
+    assert {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in root.rglob("*.pyc")} == caches, "Runtime wrote or changed bytecode despite -B"
     assert not list(root.rglob("*.dpapi"))
     print(f"Payload hashes/exclusions ({len(recorded)} files), private IPC and EOF cleanup passed.")
 
