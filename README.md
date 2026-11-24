@@ -6,11 +6,11 @@
 
 A native Windows face-recognition experience.<br>Two gentle circles to enroll. A fresh blink to verify. Processing stays on your PC.
 
-[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-2997ff?style=flat-square)](docs/getting-started.md) [![Desktop](https://img.shields.io/badge/Desktop-0.8.4-63cbb0?style=flat-square)](CHANGELOG.md) [![Runtime](https://img.shields.io/badge/Native-C%23%20%2B%20WPF-7d8ca4?style=flat-square)](docs/architecture.md) [![Status](https://img.shields.io/badge/Status-experimental-d5a75e?style=flat-square)](docs/security.md)
+[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-2997ff?style=flat-square)](docs/getting-started.md) [![Desktop](https://img.shields.io/badge/Desktop-0.8.5-63cbb0?style=flat-square)](CHANGELOG.md) [![Runtime](https://img.shields.io/badge/Native-C%23%20%2B%20WPF-7d8ca4?style=flat-square)](docs/architecture.md) [![Status](https://img.shields.io/badge/Status-experimental-d5a75e?style=flat-square)](docs/security.md)
 
-[**Download for Windows**](https://github.com/notg0d/viso/releases/tag/v0.8.4) · [**Get started**](#quick-start) · [**Documentation**](docs/README.md) · [**What's new**](CHANGELOG.md)
+[**Download for Windows**](https://github.com/notg0d/viso/releases/tag/v0.8.5) · [**Get started**](#quick-start) · [**Documentation**](docs/README.md) · [**What's new**](CHANGELOG.md)
 
-**0.8.4** reduces sign-in preparation with retained, camera-off models and precompiled Python libraries. Every scan still requires fresh identity and blink evidence. Optional exposure assistance remains off by default.
+**0.8.5** cuts recognition-worker memory by limiting OpenBLAS to one thread, while keeping 0.8.4's retained, camera-off models and fast preparation. Every scan still requires fresh identity and blink evidence. Optional exposure assistance remains off by default.
 
 <br>
 
@@ -35,7 +35,7 @@ Viso pairs a **native C#/WPF desktop** with a local Python recognition worker. E
 
 ## Quick start
 
-**[Download the complete Windows x64 installer](https://github.com/notg0d/viso/releases/download/v0.8.4/Viso-0.8.4-Setup-x64.exe)** and its [checksum](https://github.com/notg0d/viso/releases/download/v0.8.4/Viso-0.8.4-Setup-x64.exe.sha256). [Verify the download](docs/releases.md#verify-the-download), close Viso, run Setup and approve its administrator prompt and experimental-sign-in warning. Open Viso from the Start menu as your ordinary Windows user.
+**[Download the complete Windows x64 installer](https://github.com/notg0d/viso/releases/download/v0.8.5/Viso-0.8.5-Setup-x64.exe)** and its [checksum](https://github.com/notg0d/viso/releases/download/v0.8.5/Viso-0.8.5-Setup-x64.exe.sha256). [Verify the download](docs/releases.md#verify-the-download), close Viso, run Setup and approve its administrator prompt and experimental-sign-in warning. Open Viso from the Start menu as your ordinary Windows user.
 
 Desktop, Python, dependencies, models and sign-in components are included. Requires **Windows 10/11 x64 and .NET Framework 4.8**; Windows on ARM is unsupported. Setup does not enroll faces or collect/link credentials. First-time users enroll and explicitly link their account in Settings. This unsigned **experimental pre-release** still needs clean-machine installer, reboot, and current-build physical authentication validation.
 
@@ -82,7 +82,7 @@ Automated native UI capture; no live-camera verification is pictured.
 
 ## Optional Windows sign-in
 
-The [v0.8.4 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.4) includes desktop, private Python/models and Windows sign-in components, with protected upgrade/removal support. Read the [installer guide](docs/installer.md) before approving installation. Users still enroll and explicitly link their own account from Viso Settings.
+The [v0.8.5 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.5) includes desktop, private Python/models and Windows sign-in components, with protected upgrade/removal support. Read the [installer guide](docs/installer.md) before approving installation. Users still enroll and explicitly link their own account from Viso Settings.
 
 The x64 Credential Provider and LocalSystem service can submit a Windows credential after fresh face/blink verification. Local and personal Microsoft accounts are supported by the implementation; **current-build physical authentication, Microsoft-account, multi-user, reboot, and long-sleep validation remain open**.
 
