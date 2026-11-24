@@ -4,23 +4,23 @@
 
 ## Download and run
 
-**0.8.4** reduces sign-in preparation with retained, camera-off models and checked-hash Python bytecode. Fresh identity and blink requirements remain unchanged. The service keeps one model-only standby between sign-ins, trading idle memory for faster preparation.
+**0.8.5** cuts recognition-worker memory by limiting OpenBLAS to one thread, keeping 0.8.4's retained, camera-off models and checked-hash Python bytecode. Fresh identity and blink requirements remain unchanged. The service keeps one model-only standby between sign-ins, now using roughly 225 MB less commit per worker on an 8-core PC.
 
 Choose the distribution deliberately. Both are unsigned **experimental pre-releases**, require **Windows 10/11 x64 and .NET Framework 4.8**, and include the private Python runtime, dependencies, recognition models and upstream notices. Windows on ARM is unsupported.
 
 | Download | Installation and scope |
 | :--- | :--- |
-| [**v0.8.4 complete installer**](https://github.com/notg0d/viso/releases/tag/v0.8.4) | Desktop plus experimental Windows sign-in provider/service. Administrator approval and explicit risk consent required. Per-user desktop state in `%LOCALAPPDATA%\Viso`. |
+| [**v0.8.5 complete installer**](https://github.com/notg0d/viso/releases/tag/v0.8.5) | Desktop plus experimental Windows sign-in provider/service. Administrator approval and explicit risk consent required. Per-user desktop state in `%LOCALAPPDATA%\Viso`. |
 | [**v0.8.1 portable desktop ZIP**](https://github.com/notg0d/viso/releases/tag/v0.8.1) | Unchanged desktop-only bundle, no sign-in installation or administrator approval. State in `.viso/` beside the extracted app. |
 
-### Complete installer (0.8.4)
+### Complete installer (0.8.5)
 
 Download these four release assets as needed; only the executable is needed to install, but verify it against the checksum first:
 
-- **`Viso-0.8.4-Setup-x64.exe`** — all-in-one installer.
-- **`Viso-0.8.4-Setup-x64.exe.sha256`** — executable checksum.
-- **`Viso-0.8.4-Setup-x64.exe.json`** — clean-source provenance, versions and checksums.
-- **`Viso-0.8.4-Setup-x64.exe.validation.json`** — exact-build validation evidence and remaining manual gates.
+- **`Viso-0.8.5-Setup-x64.exe`** — all-in-one installer.
+- **`Viso-0.8.5-Setup-x64.exe.sha256`** — executable checksum.
+- **`Viso-0.8.5-Setup-x64.exe.json`** — clean-source provenance, versions and checksums.
+- **`Viso-0.8.5-Setup-x64.exe.validation.json`** — exact-build validation evidence and remaining manual gates.
 
 After verification, close Viso in every Windows session, run Setup and accept its administrator/sign-in-risk prompts. Open Viso from the Start menu as your ordinary Windows user. First-time users enroll a face and explicitly link their account in Settings using the account password, not a Hello PIN. Setup never enrolls, collects credentials, links accounts or opens the camera.
 
@@ -44,7 +44,7 @@ The ZIP is a directly runnable folder bundle, **not a single-file executable or 
 In PowerShell, in the folder containing the download and its `.sha256`:
 
 ```powershell
-$file = 'Viso-0.8.4-Setup-x64.exe'
+$file = 'Viso-0.8.5-Setup-x64.exe'
 # For the portable desktop instead: $file = 'Viso-0.8.1-windows-x64.zip'
 $expected = (Get-Content ($file + '.sha256') -Raw).Split(' ')[0]
 $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()

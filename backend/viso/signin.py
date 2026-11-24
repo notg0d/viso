@@ -7,6 +7,7 @@ Selected scans can open the camera alongside the remaining model preparation.
 """
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 import sys
 import threading
@@ -15,6 +16,10 @@ from time import sleep
 # -I ignores PYTHONPATH and user site packages. Only this installed code root is added.
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+
+# This module imports numpy before the viso package, so the package-level
+# OPENBLAS_NUM_THREADS default (see backend/viso/__init__.py) cannot apply here.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import numpy as np
 from backend.viso.native import Camera, NativeHost

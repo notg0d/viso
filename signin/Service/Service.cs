@@ -13,7 +13,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 
-[assembly: System.Reflection.AssemblyVersion("0.8.4.0")]
+[assembly: System.Reflection.AssemblyVersion("0.8.5.0")]
 
 namespace Viso.SignIn
 {

@@ -7,7 +7,7 @@
 
 Viso includes an x64 V2 Credential Provider and a `VisoSignIn` Windows service. The provider submits a Windows credential after the service matches a face, prompts for a fresh blink, and confirms both eyes reopened. Windows performs the account authentication.
 
-The [0.8.4 complete installer](installer.md) includes the separate service, provider and private runtime. Updating the desktop alone does not update Windows sign-in. Physical sleep, hibernate, reboot, varied cameras, Microsoft-account and multi-user scenarios require separate validation.
+The [0.8.5 complete installer](installer.md) includes the separate service, provider and private runtime. Updating the desktop alone does not update Windows sign-in. Physical sleep, hibernate, reboot, varied cameras, Microsoft-account and multi-user scenarios require separate validation.
 
 ## Account support
 
@@ -22,7 +22,7 @@ Windows Hello PINs are device-specific credentials and cannot replace the accoun
 
 ## Build and install
 
-The [**v0.8.4 experimental release**](https://github.com/notg0d/viso/releases/tag/v0.8.4) provides a [complete Windows Setup.exe](installer.md) containing the desktop, private Python/models and these sign-in components. End users need no source checkout, Python or C++ build tools. First-time users must still explicitly enroll/link their own account after installation. The **source-based workflow below** remains supported and has additional build prerequisites.
+The [**v0.8.5 experimental release**](https://github.com/notg0d/viso/releases/tag/v0.8.5) provides a [complete Windows Setup.exe](installer.md) containing the desktop, private Python/models and these sign-in components. End users need no source checkout, Python or C++ build tools. First-time users must still explicitly enroll/link their own account after installation. The **source-based workflow below** remains supported and has additional build prerequisites.
 
 Requirements: x64 Windows 10/11, .NET Framework 4.8, the Python dependencies/models installed by `setup.ps1`, Visual Studio x64 C++ Build Tools, and a Windows SDK with Credential Provider headers. Windows on ARM is not supported by this DLL build.
 

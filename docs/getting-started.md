@@ -12,13 +12,13 @@
 | Camera | A Windows-accessible webcam for live enrollment; not required for the photo lab. |
 | First setup | Complete installer: administrator approval and sign-in-risk consent. Portable desktop ZIP: extract the entire archive. Source setup additionally downloads Python packages and approximately 43 MB of model weights. |
 
-Running the desktop does not require Node.js, Electron, WebView, a .NET SDK, or administrator privileges. The [complete 0.8.4 Setup.exe](installer.md) additionally includes Windows sign-in and needs administrator approval to install; end users need no Python/compiler setup. Visual Studio C++ tools are needed only when building the sign-in components from source. The published v0.8.1 ZIP remains desktop-only.
+Running the desktop does not require Node.js, Electron, WebView, a .NET SDK, or administrator privileges. The [complete 0.8.5 Setup.exe](installer.md) additionally includes Windows sign-in and needs administrator approval to install; end users need no Python/compiler setup. Visual Studio C++ tools are needed only when building the sign-in components from source. The published v0.8.1 ZIP remains desktop-only.
 
 ## Download and run
 
-### Complete installer (0.8.4)
+### Complete installer (0.8.5)
 
-1. Download **`Viso-0.8.4-Setup-x64.exe`** and its `.sha256` file from the [experimental 0.8.4 release](https://github.com/notg0d/viso/releases/tag/v0.8.4).
+1. Download **`Viso-0.8.5-Setup-x64.exe`** and its `.sha256` file from the [experimental 0.8.5 release](https://github.com/notg0d/viso/releases/tag/v0.8.5).
 2. [Verify the checksum](releases.md#verify-the-download), read the [installer requirements and recovery guide](installer.md), and close Viso in every Windows session.
 3. Run Setup and approve the administrator prompt and experimental-sign-in warning. Open Viso from the Start menu as your ordinary Windows user.
 4. For first-time use, follow enrollment below; enable Windows sign-in only by explicitly linking your account in Settings with its password, not a Hello PIN. Setup never enrolls, collects credentials, links accounts or opens the camera.

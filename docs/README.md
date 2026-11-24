@@ -35,6 +35,6 @@ Start with the desktop. The all-in-one installer includes Windows sign-in; read 
 
 ## Read the status correctly
 
-The [v0.8.4 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.4) is an **experimental pre-release**. The [v0.8.1 portable ZIP](releases.md) remains desktop-only. Each installer includes exact source provenance and a validation record. Production code and shared docs are on `main`; regression suites, benchmarks and the browser experiment are on `test`.
+The [v0.8.5 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.5) is an **experimental pre-release**. The [v0.8.1 portable ZIP](releases.md) remains desktop-only. Each installer includes exact source provenance and a validation record. Production code and shared docs are on `main`; regression suites, benchmarks and the browser experiment are on `test`.
 
 Automated checks use synthetic state, temporary storage and public portrait fixtures. They do not establish biometric accuracy or replay resistance. Clean-machine installation, varied cameras, reboot, long sleep, Microsoft-account and multi-user scenarios require separate physical validation.

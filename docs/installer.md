@@ -2,7 +2,7 @@
 
 [← Documentation](README.md) · [Windows releases](releases.md) · [Windows sign-in](windows-signin.md) · [Security](security.md)
 
-The [**v0.8.4 experimental pre-release**](https://github.com/notg0d/viso/releases/tag/v0.8.4) provides `Viso-0.8.4-Setup-x64.exe`, an all-in-one, administrator installer. The **v0.8.1 desktop-only ZIP** remains unchanged. Download the executable and its `.sha256`, then [verify the checksum](releases.md#verify-the-download). Run Setup to update an installed machine.
+The [**v0.8.5 experimental pre-release**](https://github.com/notg0d/viso/releases/tag/v0.8.5) provides `Viso-0.8.5-Setup-x64.exe`, an all-in-one, administrator installer. The **v0.8.1 desktop-only ZIP** remains unchanged. Download the executable and its `.sha256`, then [verify the checksum](releases.md#verify-the-download). Run Setup to update an installed machine.
 
 ## What is included
 
@@ -60,12 +60,12 @@ Alternatively set `INNOSETUP_COMPILER` or put `ISCC.exe` on PATH. The script doe
 
 Output under `desktop/releases/`:
 
-- `Viso-0.8.4-Setup-x64.exe` — everything in one download.
-- `Viso-0.8.4-Setup-x64.exe.sha256` — installer checksum.
-- `Viso-0.8.4-Setup-x64.exe.json` — provenance/checksums, no private user data.
-- `Viso-0.8.4-installer-payload/` — build/validation staging, not an additional user dependency; do not upload it as a release asset.
+- `Viso-0.8.5-Setup-x64.exe` — everything in one download.
+- `Viso-0.8.5-Setup-x64.exe.sha256` — installer checksum.
+- `Viso-0.8.5-Setup-x64.exe.json` — provenance/checksums, no private user data.
+- `Viso-0.8.5-installer-payload/` — build/validation staging, not an additional user dependency; do not upload it as a release asset.
 
-The release also includes `Viso-0.8.4-Setup-x64.exe.validation.json`, a record of the exact installer checks and their limits. Upload only the executable, `.sha256`, provenance `.json` and validation `.json`; exclude staging and superseded builds. The source tag remains pinned to the clean installer build, not later documentation commits.
+The release also includes `Viso-0.8.5-Setup-x64.exe.validation.json`, a record of the exact installer checks and their limits. Upload only the executable, `.sha256`, provenance `.json` and validation `.json`; exclude staging and superseded builds. The source tag remains pinned to the clean installer build, not later documentation commits.
 
 On `test`, run `scripts/test-installer.ps1 -Payload PATH` and the x64 `scripts/test-installer-desktop.ps1 -Bundle PATH`, plus existing Python, native, provider/service and deployment suites. The installer regression runner uses synthetic folders, a private temporary HKCU sandbox and mocked service/runtime operations for lifecycle tests; it **does not install or modify the real Windows sign-in provider/service**. Full bundled service-to-Python checks and desktop model readiness use the actual payload without the camera. The desktop check also saves/deletes a synthetic public-portrait DPAPI enrollment in an explicit temporary user-state directory, never in Program Files or a real user's enrollment folder.
 

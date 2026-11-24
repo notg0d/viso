@@ -2,7 +2,11 @@
 
 [Project overview](README.md) · [Development and validation](docs/development.md#validate-changes)
 
-The [0.8.4 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.4) and [0.8.1 desktop-only ZIP](https://github.com/notg0d/viso/releases/tag/v0.8.1) are experimental pre-releases. Earlier release assets remain unchanged. Production code and shared docs stay on `main`; regression suites and benchmarks stay on `test`. Desktop and separately installed sign-in components can have different versions.
+The [0.8.5 complete installer](https://github.com/notg0d/viso/releases/tag/v0.8.5) and [0.8.1 desktop-only ZIP](https://github.com/notg0d/viso/releases/tag/v0.8.1) are experimental pre-releases. Earlier release assets remain unchanged. Production code and shared docs stay on `main`; regression suites and benchmarks stay on `test`. Desktop and separately installed sign-in components can have different versions.
+
+## 0.8.5 — leaner recognition workers (experimental pre-release)
+
+- Limit OpenBLAS to one thread in recognition workers. The pinned numpy wheels preallocate roughly 28 MB of buffers per logical core at import, while this workload's numpy math is 128-float embedding operations and image math runs on OpenCV/TFLite threads. Measured on an 8-core PC: sign-in standby commit drops from 507 MB to 282 MB and the desktop worker from 455 MB to 230 MB at model-ready, with unchanged inference latency. The default is set before numpy imports in the viso package and the sign-in worker; an explicit environment override is still honored.
 
 ## 0.8.4 — faster sign-in preparation (experimental pre-release)
 
